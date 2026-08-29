@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
-import { auth, User } from '@/lib/api';
+import { auth, storageIsEphemeral, User } from '@/lib/api';
 import {
   IcApps, IcBook, IcDatabase, IcFlask, IcGrid, IcLogout, IcMenu, IcRocket,
   IcSettings, IcTrophy, IcX,
@@ -30,8 +30,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = React.useState(false);
 
   React.useEffect(() => {
+    // Require BOTH: a stored user with no token yields 401s on every request,
+    // which would bounce back here anyway — treat it as logged out up front.
     const u = auth.user();
-    if (!u) { router.replace('/login'); return; }
+    const t = auth.token();
+    if (!u || !t) {
+      auth.clear();
+      // On the memory tier a hard navigation would discard the session, so use
+      // the client router; otherwise a full replace avoids a render race where
+      // the protected page keeps firing 401s during the transition.
+      if (storageIsEphemeral()) router.replace('/login');
+      else window.location.replace('/login');
+      return;
+    }
     setUser(u);
     setReady(true);
   }, [router]);

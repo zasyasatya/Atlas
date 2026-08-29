@@ -1,9 +1,9 @@
 'use client';
 
-export const API_BASE =
-  typeof window !== 'undefined' && process.env.NODE_ENV === 'development'
-    ? '' // dev: rewritten by next.config proxy
-    : '';
+// Same-origin by default: the FastAPI monolith serves this bundle and the API.
+// Set NEXT_PUBLIC_API_BASE at build time only when the UI is hosted separately
+// from the backend (e.g. static files on a CDN, API on another domain).
+export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || '').replace(/\/$/, '');
 
 const TOKEN_KEY = 'atlas_token';
 const USER_KEY = 'atlas_user';
@@ -11,20 +11,89 @@ const USER_KEY = 'atlas_user';
 export type Role = 'admin' | 'supervisor' | 'intern' | 'viewer';
 export interface User { id: number; email: string; full_name: string; role: Role; cohort?: string; }
 
+/**
+ * Session storage with graceful degradation.
+ *
+ * localStorage is unavailable in three situations that all look like "login
+ * silently fails and bounces back to /login":
+ *   - a sandboxed iframe without allow-same-origin (opaque origin -> SecurityError)
+ *   - Safari/Firefox private mode with site data blocked
+ *   - browsers configured to block all cookies and storage
+ *
+ * We try localStorage, then sessionStorage, then fall back to an in-memory map.
+ * The memory tier keeps the app fully usable for the current tab (it just does
+ * not survive a reload), which is far better than an unbreakable login loop.
+ */
+const memory = new Map<string, string>();
+
+type Tier = 'local' | 'session' | 'memory';
+let tier: Tier | null = null;
+
+function detectTier(): Tier {
+  if (tier) return tier;
+  if (typeof window === 'undefined') return 'memory';
+  for (const [name, store] of [
+    ['local', () => window.localStorage],
+    ['session', () => window.sessionStorage],
+  ] as const) {
+    try {
+      const s = store();
+      const probe = '__atlas_probe__';
+      s.setItem(probe, '1');
+      s.removeItem(probe);
+      tier = name as Tier;
+      return tier;
+    } catch { /* try the next tier */ }
+  }
+  tier = 'memory';
+  return tier;
+}
+
+function backing(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
+  const t = detectTier();
+  if (t === 'local') return window.localStorage;
+  if (t === 'session') return window.sessionStorage;
+  return {
+    getItem: (k: string) => (memory.has(k) ? memory.get(k)! : null),
+    setItem: (k: string, v: string) => { memory.set(k, v); },
+    removeItem: (k: string) => { memory.delete(k); },
+  };
+}
+
+/** True when the session cannot outlive a page reload (memory tier). */
+export function storageIsEphemeral(): boolean {
+  return typeof window !== 'undefined' && detectTier() === 'memory';
+}
+
+function readStore(key: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try { return backing().getItem(key); } catch { return null; }
+}
+function writeStore(key: string, value: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try { backing().setItem(key, value); return true; } catch { return false; }
+}
+
 export const auth = {
-  token: () => (typeof window === 'undefined' ? null : localStorage.getItem(TOKEN_KEY)),
+  token: () => readStore(TOKEN_KEY),
   user: (): User | null => {
-    if (typeof window === 'undefined') return null;
-    const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const raw = readStore(USER_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw) as User; } catch { return null; } // corrupt entry != crash
   },
-  set(token: string, user: User) {
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  /** Returns false when the browser refuses to persist (private mode, disabled storage). */
+  set(token: string, user: User): boolean {
+    const ok = writeStore(TOKEN_KEY, token) && writeStore(USER_KEY, JSON.stringify(user));
+    return ok && readStore(TOKEN_KEY) === token;
   },
   clear() {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    if (typeof window === 'undefined') return;
+    try {
+      backing().removeItem(TOKEN_KEY);
+      backing().removeItem(USER_KEY);
+    } catch { /* nothing to clear */ }
+    memory.delete(TOKEN_KEY);
+    memory.delete(USER_KEY);
   },
   canEdit(user?: User | null) {
     const u = user ?? auth.user();
@@ -39,7 +108,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    // fetch() only rejects on network-level failure: API process down, wrong
+    // port, DNS/CORS. Say so plainly instead of surfacing "Failed to fetch".
+    throw new Error(
+      `Cannot reach the ATLAS API at ${API_BASE || window.location.origin}. ` +
+      `Is the backend running? Start it with: python run.py`,
+    );
+  }
   if (res.status === 401) {
     auth.clear();
     if (typeof window !== 'undefined' && !window.location.pathname.includes('login')) {

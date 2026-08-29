@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routers import assets, auth, content, dashboard, deployments, notebooks
@@ -69,13 +69,34 @@ STATIC = Path(settings.static_dir)
 if (STATIC / "index.html").exists():
     app.mount("/_next", StaticFiles(directory=STATIC / "_next"), name="next-assets")
 
+    # Asset extensions that must never fall back to index.html. Serving HTML in
+    # place of a missing .js makes the browser fail to parse the chunk, React
+    # never hydrates, and forms silently degrade to native submits.
+    _ASSET_SUFFIXES = {
+        ".js", ".mjs", ".css", ".map", ".json", ".txt", ".xml", ".woff", ".woff2",
+        ".ttf", ".otf", ".eot", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
+        ".avif", ".ico", ".webmanifest", ".wasm", ".mp4", ".webm",
+    }
+
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
         if full_path.startswith("api/"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
-        candidate = STATIC / full_path
+
+        # Reject traversal (../) and absolute paths before touching the disk.
+        try:
+            candidate = (STATIC / full_path).resolve()
+            candidate.relative_to(STATIC.resolve())
+        except (ValueError, OSError):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+
         if candidate.is_file():
             return FileResponse(candidate)
+
+        # A missing static asset is a real 404, never the SPA shell.
+        if Path(full_path).suffix.lower() in _ASSET_SUFFIXES:
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+
         html = STATIC / f"{full_path}.html" if full_path else STATIC / "index.html"
         if html.is_file():
             return FileResponse(html)
@@ -85,6 +106,23 @@ if (STATIC / "index.html").exists():
         return FileResponse(STATIC / "index.html")
 else:
     @app.get("/", include_in_schema=False)
-    def placeholder() -> dict:
-        return {"message": f"{settings.app_name} API is running. Frontend bundle not built yet.",
-                "docs": "/api/docs"}
+    def placeholder():
+        # No bundle on disk: explain how to get one instead of a bare JSON blob.
+        return HTMLResponse(
+            """<!doctype html><html><head><meta charset="utf-8">
+<title>ATLAS - frontend not built</title>
+<style>body{font-family:ui-sans-serif,system-ui,sans-serif;background:#F6F8F6;color:#12160F;
+display:grid;place-items:center;min-height:100vh;margin:0}
+.c{max-width:540px;padding:40px;background:#fff;border:1px solid #E2E8E2;border-radius:20px}
+h1{margin:0 0 8px;font-size:22px}p{color:#3E463A;line-height:1.6;font-size:14px}
+code{background:#EEF2EE;padding:2px 7px;border-radius:6px;font-size:13px}
+a{color:#487058}</style></head><body><div class="c">
+<h1>API is running &mdash; UI not built yet</h1>
+<p>The FastAPI backend is healthy, but no compiled frontend was found.</p>
+<p>Build it with:</p><p><code>python run.py --build</code></p>
+<p>That compiles the Next.js bundle into <code>backend/app/static/</code> and
+serves everything from this one port.</p>
+<p style="margin-top:22px"><a href="/api/docs">Open the API docs &rarr;</a></p>
+</div></body></html>""",
+            status_code=503,
+        )

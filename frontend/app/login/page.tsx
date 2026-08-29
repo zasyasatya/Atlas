@@ -1,7 +1,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import React from 'react';
-import { api, auth } from '@/lib/api';
+import { api, auth, storageIsEphemeral } from '@/lib/api';
 import { Button, Field, Input, useToast } from '../components/UI';
 import { Logo } from '../components/Shell';
 import { IcArrowRight, IcLock } from '../components/Icons';
@@ -24,13 +24,35 @@ export default function Login() {
     api.get<any>('/api/config').then((c) => setGoogleId(c.google_client_id || '')).catch(() => {});
   }, []);
 
+  const [ephemeral, setEphemeral] = React.useState(false);
+
+  // Already signed in? Skip the form.
+  React.useEffect(() => {
+    if (auth.token() && auth.user()) router.replace('/dashboard');
+    setEphemeral(storageIsEphemeral());
+  }, [router]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     try {
       const res = await api.post<any>('/api/auth/login', { email, password });
-      auth.set(res.access_token, res.user);
-      router.push('/dashboard');
+      if (!auth.set(res.access_token, res.user)) {
+        show('Cannot save your session: browser storage is blocked. Disable private mode or allow site data.', 'bad');
+        setLoading(false);
+        return;
+      }
+      if (storageIsEphemeral()) {
+        // Storage is memory-only (sandboxed iframe / blocked site data). A full
+        // page load would discard the token and bounce us back here, so stay in
+        // the same document and navigate client-side.
+        router.push('/dashboard');
+      } else {
+        // Persisted: a hard navigation guarantees the dashboard boots with the
+        // token already committed.
+        window.location.assign('/dashboard');
+      }
     } catch (err: any) {
       show(err.message || 'Login failed', 'bad');
       setLoading(false);
@@ -58,12 +80,18 @@ export default function Login() {
             Learn the architecture, train on borrowed GPUs, ship the app.
           </p>
 
-          <form onSubmit={submit} className="space-y-4">
+          {ephemeral && (
+            <div className="mb-4 rounded-xl border border-signal-warn/30 bg-signal-warn/10 px-3.5 py-2.5 text-[12.5px] text-ink-soft leading-relaxed">
+              Your browser is blocking site storage, so this session will end when
+              you reload. Open ATLAS in a normal browser tab to stay signed in.
+            </div>
+          )}
+          <form onSubmit={submit} method="post" action="#" className="space-y-4">
             <Field label="Email">
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+              <Input type="email" name="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
             </Field>
             <Field label="Password">
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
+              <Input type="password" name="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
             </Field>
             <Button type="submit" size="lg" loading={loading} className="w-full" icon={!loading && <IcArrowRight size={16} />}>
               Sign in

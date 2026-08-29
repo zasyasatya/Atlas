@@ -7,21 +7,38 @@ FastAPI + Next.js monolith. One image, one port, deployable to Coolify.
 
 ---
 
-## Quick start
+## Quick start — no Docker needed
+
+One command. It creates the virtualenv, installs dependencies, builds the UI,
+seeds the database and starts the server.
 
 ```bash
-# 1. backend
-cd backend
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m uvicorn app.main:app --reload --port 8000
-
-# 2. frontend (separate terminal, dev mode proxies /api to :8000)
-cd frontend
-npm install
-npm run dev            # http://localhost:3000
+python run.py
 ```
 
-Or run the whole thing as one container:
+Then open **http://localhost:8000**.
+
+On Windows you can double-click `start.bat`; on macOS/Linux, `./start.sh`.
+
+**Requirements:** Python 3.10+ is mandatory. Node.js 18+ is optional — it is
+only needed to compile the web interface. Without Node, ATLAS still runs as an
+API (`/api/docs`) and serves a prebuilt UI if one is present.
+
+First run takes 3–6 minutes (downloading Python and npm packages). Later starts
+take a few seconds.
+
+### Other ways to run it
+
+```bash
+python run.py --check          # diagnose the environment, change nothing
+python run.py --build          # force a UI rebuild after editing the frontend
+python run.py --dev            # hot-reload dev mode (UI on :3000, API on :8000)
+python run.py --backend-only   # API only, skip the UI build
+python run.py --port 9000      # different port
+python run.py --host 0.0.0.0   # expose on the local network
+```
+
+### Or with Docker
 
 ```bash
 docker compose up --build     # http://localhost:8000
@@ -141,3 +158,69 @@ Interactive docs at `/api/docs`.
 
 - `docs/PRD.md` — full product requirements, design rationale and verification log
 - `docs/SYSTEM_DESIGN.md` — architecture, data model, sequence flows
+
+---
+
+## Troubleshooting
+
+### Login succeeds, then bounces straight back to the login page
+
+Almost always the browser is running a **stale or partial JavaScript bundle**,
+so the page never becomes interactive and the sign-in form falls back to a plain
+browser submit that throws the token away.
+
+1. Hard-refresh: `Ctrl+Shift+R` (Windows/Linux) or `Cmd+Shift+R` (macOS).
+2. Rebuild the UI so the served files match the code:
+   ```bash
+   python run.py --build
+   ```
+3. Open DevTools → Console. If you see 404s for `/_next/static/chunks/*.js`,
+   the bundle on disk is out of date — the rebuild above fixes it.
+
+Two other causes:
+
+- **Blocked site storage** — private/incognito mode, a sandboxed `<iframe>`
+  preview, or a strict cookie policy. ATLAS detects this and falls back to
+  `sessionStorage`, then to in-memory storage, so sign-in still works; it shows
+  a banner warning that the session ends on reload. Open ATLAS in a normal tab
+  to stay signed in.
+- **Clock skew.** JWTs carry an expiry; if the machine's clock is far off, every
+  token looks expired. Sync the system time.
+
+### "Cannot reach the ATLAS API"
+
+The backend is not running or is on another port. Start it with `python run.py`
+and confirm http://localhost:8000/api/health returns `{"status":"ok"}`.
+
+### `python: command not found`
+
+Use `python3 run.py`. On Windows, reinstall Python with **"Add Python to PATH"**
+ticked.
+
+### `ensurepip is not available` / venv creation fails
+
+Debian and Ubuntu ship Python without the venv module:
+
+```bash
+sudo apt install python3-venv python3-pip
+```
+
+### No web interface, only JSON at `/`
+
+Node.js was missing when the UI was built. Install Node 18+ from
+[nodejs.org](https://nodejs.org), then:
+
+```bash
+python run.py --build
+```
+
+### Port 8000 already in use
+
+```bash
+python run.py --port 8080
+```
+
+### Reset everything
+
+Delete `storage/atlas.db` and restart — the demo data is re-seeded on boot.
+This erases uploaded datasets, runs and deployments.
