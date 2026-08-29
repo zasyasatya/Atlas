@@ -1,0 +1,46 @@
+# Local / Coolify deployment for ATLAS.
+services:
+  atlas:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: atlas:latest
+    container_name: atlas
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # --- core -------------------------------------------------------------
+      ATLAS_ENVIRONMENT: production
+      ATLAS_SECRET_KEY: ${ATLAS_SECRET_KEY:-change-me-to-a-long-random-string}
+      ATLAS_PUBLIC_BASE_URL: ${ATLAS_PUBLIC_BASE_URL:-http://localhost:8000}
+      ATLAS_SEED_DEMO_DATA: ${ATLAS_SEED_DEMO_DATA:-true}
+      # --- database (SQLite by default; swap for Postgres in production) ----
+      ATLAS_DATABASE_URL: ${ATLAS_DATABASE_URL:-}
+      # --- Colab GPU bridge -------------------------------------------------
+      ATLAS_GITHUB_TOKEN: ${ATLAS_GITHUB_TOKEN:-}
+      ATLAS_COLAB_GITHUB_REPO: ${ATLAS_COLAB_GITHUB_REPO:-}
+      ATLAS_COLAB_GITHUB_BRANCH: ${ATLAS_COLAB_GITHUB_BRANCH:-main}
+      # --- Kaggle GPU bridge ------------------------------------------------
+      ATLAS_KAGGLE_USERNAME: ${ATLAS_KAGGLE_USERNAME:-}
+      ATLAS_KAGGLE_KEY: ${ATLAS_KAGGLE_KEY:-}
+      # --- deployment engine ------------------------------------------------
+      ATLAS_DEPLOY_DRIVER: ${ATLAS_DEPLOY_DRIVER:-local_process}
+      ATLAS_COOLIFY_BASE_URL: ${ATLAS_COOLIFY_BASE_URL:-}
+      ATLAS_COOLIFY_TOKEN: ${ATLAS_COOLIFY_TOKEN:-}
+      ATLAS_COOLIFY_PROJECT_UUID: ${ATLAS_COOLIFY_PROJECT_UUID:-}
+      ATLAS_COOLIFY_SERVER_UUID: ${ATLAS_COOLIFY_SERVER_UUID:-}
+      # --- Google SSO -------------------------------------------------------
+      ATLAS_GOOGLE_CLIENT_ID: ${ATLAS_GOOGLE_CLIENT_ID:-}
+      ATLAS_GOOGLE_CLIENT_SECRET: ${ATLAS_GOOGLE_CLIENT_SECRET:-}
+    volumes:
+      - atlas_storage:/app/storage
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+volumes:
+  atlas_storage:

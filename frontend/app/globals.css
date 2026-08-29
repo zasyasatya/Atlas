@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/fonts/plus-jakarta-sans.woff2') format('woff2');
+}
+
+:root {
+  --font-sans: 'Plus Jakarta Sans';
+  --grid: rgba(18, 22, 15, 0.045);
+}
+
+html, body { height: 100%; }
+html { overflow-x: hidden; }
+body { overflow-x: hidden; max-width: 100vw; }
+
+body {
+  background: #F6F8F6;
+  color: #12160F;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'ss01' 1, 'cv01' 1;
+}
+
+/* the faint engineering grid from the reference screenshot */
+.grid-canvas {
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.dot-canvas {
+  background-image: radial-gradient(rgba(18,22,15,0.07) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #6E7669;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #E2E8E2;
+  border-radius: 16px;
+}
+
+.hairline { border-color: #E2E8E2; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5CB; border-radius: 99px; border: 3px solid #F6F8F6; }
+::-webkit-scrollbar-thumb:hover { background: #94B69D; }
+
+input, select, textarea { font-family: inherit; }
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: 2px solid #94B69D; outline-offset: 1px;
+}
+
+.prose-atlas p { margin-bottom: 0.85rem; line-height: 1.7; color: #3E463A; }
+.prose-atlas strong { color: #12160F; font-weight: 600; }
+.prose-atlas code {
+  background: #EEF2EE; padding: 1px 5px; border-radius: 5px;
+  font-size: 0.86em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.prose-atlas em { font-style: italic; color: #487058; }
+
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

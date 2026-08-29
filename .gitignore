@@ -1,0 +1,32 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# node
+node_modules/
+.next/
+out/
+.npm/
+
+# generated frontend bundle (Dockerfile stage 1 rebuilds it into the image)
+backend/app/static/
+
+# runtime data: database, uploads, artifacts, deployed bundles
+storage/
+
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# local
+*.db
+*.sqlite3
+.DS_Store
+.idea/
+.vscode/
