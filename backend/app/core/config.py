@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # google oauth
     google_client_id: str = ""
     google_client_secret: str = ""
+    # Optional comma-separated hosted-domain allowlist, e.g.
+    # "pertamina.com,contractor.co.id". Empty means any verified Google
+    # account may sign in (and lands as an Intern).
+    google_allowed_domains: str = ""
 
     seed_demo_data: bool = True
 

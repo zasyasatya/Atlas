@@ -200,6 +200,8 @@ cohort, or change every password.
 | `tests/e2e.py` | 22 browser checks covering auth, curriculum, compute, rubric and the manual. |
 | `tests/prod_mode.py` | 26 checks that production really hides the operator content. Needs a dev **and** a prod instance. |
 | `tests/lesson_contract.py` | 13 checks that every seeded lesson block matches what `BlockRenderer.tsx` reads. Catches blocks that would render blank. |
+| `tests/google_auth.py` | 31 checks on Google id_token verification: forged signatures, `alg=none`, algorithm confusion, wrong audience, expiry, unverified email, nonce replay, PKCE. No network needed. |
+| `tests/google_flow.py` | 23 checks driving a full sign-in against a stand-in Google: authorize, code exchange, callback, session, and replay rejection. |
 | `tests/capture_manual.py` | Recaptures every manual screenshot from the running app. |
 
 ### Topic 6 reference implementation

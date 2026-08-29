@@ -57,6 +57,10 @@ def public_config() -> dict:
     return {
         "app_name": settings.app_name,
         "tagline": settings.app_tagline,
+        # The client id alone does not make sign-in work - the exchange needs
+        # the secret too. Report whether the flow is actually usable so the UI
+        # never offers a button that cannot succeed.
+        "google_enabled": bool(settings.google_client_id and settings.google_client_secret),
         "google_client_id": settings.google_client_id,
         "colab_configured": bool(settings.github_token and settings.colab_github_repo),
         "kaggle_configured": bool(settings.kaggle_username and settings.kaggle_key),

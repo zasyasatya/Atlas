@@ -109,7 +109,7 @@ export default function Settings() {
           <div className="eyebrow mb-2">Current runtime</div>
           <div className="grid sm:grid-cols-2 gap-2">
             {[['Deploy driver', cfg?.deploy_driver], ['Colab', cfg?.colab_configured ? 'ready' : 'fallback mode'],
-              ['Kaggle', cfg?.kaggle_configured ? 'ready' : 'not configured'], ['Google SSO', cfg?.google_client_id ? 'ready' : 'not configured']]
+              ['Kaggle', cfg?.kaggle_configured ? 'ready' : 'not configured'], ['Google SSO', cfg?.google_enabled ? 'ready' : 'not configured']]
               .map(([k, v]) => (
               <div key={k as string} className="flex items-center justify-between px-3 py-2 rounded-lg bg-paper-deep/60">
                 <span className="text-[12.5px] text-ink-soft">{k}</span>

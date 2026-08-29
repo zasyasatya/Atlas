@@ -28,7 +28,8 @@ export default function Login() {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [loading, setLoading] = React.useState(false);
-  const [googleId, setGoogleId] = React.useState('');
+  const [googleEnabled, setGoogleEnabled] = React.useState(false);
+  const [googleBusy, setGoogleBusy] = React.useState(false);
   // Assume production until the server says otherwise, so demo credentials
   // never flash on a public deployment.
   const [isProd, setIsProd] = React.useState<boolean | null>(null);
@@ -37,7 +38,7 @@ export default function Login() {
 
   React.useEffect(() => {
     api.get<any>('/api/config')
-      .then((c) => { setGoogleId(c.google_client_id || ''); setIsProd(!!c.is_production); })
+      .then((c) => { setGoogleEnabled(!!c.google_enabled); setIsProd(!!c.is_production); })
       .catch(() => setIsProd(true));
     // 404s in production, which is the point - no cards, no prefill.
     api.get<DemoAccount[]>('/api/auth/demo-accounts')
@@ -53,8 +54,41 @@ export default function Login() {
 
   const [ephemeral, setEphemeral] = React.useState(false);
 
+  // Returning from Google. The callback puts the token in the URL fragment
+  // because fragments are never sent to a server, so it stays out of access
+  // logs and Referer headers. Consume it, then scrub the address bar.
+  React.useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    const params = new URLSearchParams(hash);
+    const token = params.get('token');
+    if (!token) return;
+
+    const dest = params.get('next') || '/dashboard';
+    history.replaceState(null, '', window.location.pathname);
+    setGoogleBusy(true);
+
+    // The callback hands us a token but not a profile; ask who we are.
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Session rejected'))))
+      .then((user) => {
+        if (!auth.set(token, user)) {
+          show('Cannot save your session: browser storage is blocked.', 'bad');
+          setGoogleBusy(false);
+          return;
+        }
+        if (storageIsEphemeral()) router.push(dest);
+        else window.location.assign(dest);
+      })
+      .catch(() => {
+        show('Google sign-in could not be completed. Please try again.', 'bad');
+        setGoogleBusy(false);
+      });
+  }, [router, show]);
+
   // Already signed in? Skip the form.
   React.useEffect(() => {
+    if (window.location.hash.includes('token=')) return;  // let the handler above run
     if (auth.token() && auth.user()) router.replace('/dashboard');
     setEphemeral(storageIsEphemeral());
   }, [router]);
@@ -132,10 +166,28 @@ export default function Login() {
           </div>
 
           <Button variant="outline" size="lg" className="w-full"
-            onClick={() => show(googleId ? 'Redirecting to Google...' : 'Set ATLAS_GOOGLE_CLIENT_ID to enable Google SSO', googleId ? 'ok' : 'warn')}
-            icon={<GoogleMark />}>
+            loading={googleBusy}
+            disabled={!googleEnabled || googleBusy}
+            title={googleEnabled ? 'Sign in with your Google account'
+                                 : 'Google sign-in is not configured on this server'}
+            onClick={() => {
+              if (!googleEnabled) {
+                show('Google sign-in is not enabled. Set ATLAS_GOOGLE_CLIENT_ID and ATLAS_GOOGLE_CLIENT_SECRET.', 'warn');
+                return;
+              }
+              setGoogleBusy(true);
+              // Full-page navigation: the OAuth handshake happens on Google's
+              // domain and comes back to /api/auth/google/callback.
+              window.location.assign('/api/auth/google/start?next=/dashboard');
+            }}
+            icon={!googleBusy && <GoogleMark />}>
             Continue with Google
           </Button>
+          {!googleEnabled && (
+            <p className="mt-2 text-center text-[11.5px] text-ink-faint">
+              Google sign-in is not configured on this server.
+            </p>
+          )}
 
           <Link
             href="/manual"

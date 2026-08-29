@@ -420,8 +420,30 @@ export default function Manual() {
                 <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">Google sign-in</h3>
                 <p>
                   Set <M>ATLAS_GOOGLE_CLIENT_ID</M> and <M>ATLAS_GOOGLE_CLIENT_SECRET</M> to enable
-                  the “Continue with Google” button. Until then the button explains that SSO is not
-                  configured rather than failing silently.
+                  the “Continue with Google” button. Both are required; until then the button is
+                  disabled and says so, rather than failing silently.
+                </p>
+                <p className="mt-3">
+                  In Google Cloud Console create an OAuth 2.0 Client ID of type{' '}
+                  <strong>Web application</strong>, then add exactly this authorised redirect URI:
+                </p>
+                <Code>{`https://<your-domain>/api/auth/google/callback`}</Code>
+                <Note>
+                  <M>ATLAS_PUBLIC_BASE_URL</M> must match that domain exactly. Behind a reverse
+                  proxy the app only sees an internal address, so if the two disagree Google
+                  refuses the handshake with <M>redirect_uri_mismatch</M>.
+                </Note>
+                <p className="mt-3">
+                  ATLAS uses the authorization-code flow with PKCE. The <M>id_token</M> Google
+                  returns is verified against Google’s published signing keys — signature, issuer,
+                  audience, expiry, and a per-attempt nonce — before any account is created. People
+                  who sign in this way always arrive as <strong>Intern</strong>; promote them from
+                  the database, never by email address.
+                </p>
+                <p className="mt-3">
+                  To restrict sign-in to your organisation, set{' '}
+                  <M>ATLAS_GOOGLE_ALLOWED_DOMAINS</M> to a comma-separated list of email domains.
+                  Leave it empty and any verified Google account may join as an Intern.
                 </p>
               </>
             ) : (
@@ -785,7 +807,8 @@ export default function Manual() {
                 [<M key="4">ATLAS_GITHUB_TOKEN</M>, 'Enables the Colab bridge, together with the repo and branch settings.'],
                 [<M key="5">ATLAS_KAGGLE_USERNAME / _KEY</M>, 'Enables fully headless Kaggle GPU runs.'],
                 [<M key="6">ATLAS_DEPLOY_DRIVER</M>, 'local_process, coolify or manifest.'],
-                [<M key="7">ATLAS_GOOGLE_CLIENT_ID / _SECRET</M>, 'Enables Google sign-in.'],
+                [<M key="7">ATLAS_GOOGLE_CLIENT_ID / _SECRET</M>, 'Enables Google sign-in. Both are required.'],
+                [<M key="7b">ATLAS_GOOGLE_ALLOWED_DOMAINS</M>, 'Optional. Restrict SSO to these email domains.'],
                 [<M key="8">ATLAS_DATABASE_URL</M>, 'Leave empty for SQLite; set for PostgreSQL.'],
               ]}
             />

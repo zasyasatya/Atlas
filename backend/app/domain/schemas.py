@@ -20,13 +20,6 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class GoogleLoginRequest(BaseModel):
-    id_token: str = ""
-    email: EmailStr | None = None
-    full_name: str = ""
-    sub: str = ""
-
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
