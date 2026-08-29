@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import React from 'react';
+import { api } from '@/lib/api';
 import { Logo } from '../components/Shell';
 import {
   IcApps, IcArrowLeft, IcBook, IcDatabase, IcFlask, IcGrid, IcRocket,
@@ -11,8 +12,26 @@ import {
 /* content model                                                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Chapters marked `operator: true` are for whoever installs and runs ATLAS:
+ * setup commands, environment variables, seeded demo logins, troubleshooting.
+ * They are hidden in production, where the audience is supervisors and interns
+ * using a platform somebody else already deployed.
+ */
+type DemoAccount = { email: string; password: string; role: string; name?: string };
+
+const ROLE_LABEL: Record<string, string> = {
+  supervisor: 'Supervisor', intern: 'Intern', admin: 'Admin', viewer: 'Viewer',
+};
+const ROLE_BLURB: Record<string, string> = {
+  supervisor: 'Author curriculum, review apps, upload decks and datasets.',
+  intern: 'Learn, run notebooks, upload data, ship the graduation app.',
+  admin: 'Everything a supervisor can do, plus platform configuration.',
+  viewer: 'Read-only access for guests and external reviewers.',
+};
+
 const SECTIONS = [
-  { id: 'start', label: 'Getting started', icon: IcBook },
+  { id: 'start', label: 'Getting started', icon: IcBook, operator: true },
   { id: 'signin', label: 'Signing in & roles', icon: IcGrid },
   { id: 'dashboard', label: 'The dashboard', icon: IcGrid },
   { id: 'curriculum', label: 'Curriculum', icon: IcBook },
@@ -22,9 +41,9 @@ const SECTIONS = [
   { id: 'deployment', label: 'Shipping your app', icon: IcRocket },
   { id: 'portal', label: 'App portal', icon: IcApps },
   { id: 'progress', label: 'XP & leaderboard', icon: IcTrophy },
-  { id: 'settings', label: 'Settings & config', icon: IcSettings },
+  { id: 'settings', label: 'Settings & config', icon: IcSettings, operator: true },
   { id: 'mobile', label: 'On mobile', icon: IcGrid },
-  { id: 'trouble', label: 'Troubleshooting', icon: IcSettings },
+  { id: 'trouble', label: 'Troubleshooting', icon: IcSettings, operator: true },
   { id: 'glossary', label: 'Glossary', icon: IcBook },
 ];
 
@@ -56,11 +75,11 @@ function Figure({
 }
 
 function Section({
-  id, eyebrow, title, lead, children,
-}: { id: string; eyebrow: string; title: string; lead?: string; children: React.ReactNode }) {
+  id, num, title, lead, children,
+}: { id: string; num: number; title: string; lead?: string; children: React.ReactNode }) {
   return (
     <section id={id} className="scroll-mt-24 border-t border-line pt-14 first:border-0 first:pt-0">
-      <div className="eyebrow mb-2.5">{eyebrow}</div>
+      <div className="eyebrow mb-2.5">Chapter {String(num).padStart(2, '0')}</div>
       <h2 className="mb-3 text-[30px] font-extrabold leading-[1.12] tracking-[-0.032em] text-ink">
         {title}
       </h2>
@@ -155,12 +174,38 @@ const M = ({ children }: { children: React.ReactNode }) => (
 /* ------------------------------------------------------------------ */
 
 export default function Manual() {
-  const [active, setActive] = React.useState('start');
+  const [active, setActive] = React.useState('signin');
   const [zoom, setZoom] = React.useState<{ src: string; cap: string } | null>(null);
   const [navOpen, setNavOpen] = React.useState(false);
+  // null = still loading. Assume production until the server says otherwise,
+  // so operator content never flashes on screen before being hidden.
+  const [isProd, setIsProd] = React.useState<boolean | null>(null);
 
-  // scrollspy
+  // Credentials are fetched, never bundled: a static export ships both branches
+  // of any conditional, so hardcoding them would leave working passwords inside
+  // the JavaScript of a production deployment.
+  const [demo, setDemo] = React.useState<DemoAccount[]>([]);
+
   React.useEffect(() => {
+    let alive = true;
+    api.get<any>('/api/config')
+      .then((c) => { if (alive) setIsProd(Boolean(c.is_production)); })
+      .catch(() => { if (alive) setIsProd(true); });
+    // 404s in production, which is the point - nothing to show.
+    api.get<DemoAccount[]>('/api/auth/demo-accounts')
+      .then((d) => { if (alive && Array.isArray(d)) setDemo(d); })
+      .catch(() => { if (alive) setDemo([]); });
+    return () => { alive = false; };
+  }, []);
+
+  const chapters = React.useMemo(
+    () => SECTIONS.filter((s) => !(s.operator && isProd !== false)),
+    [isProd],
+  );
+
+  // scrollspy - re-registered when the visible chapter set changes
+  React.useEffect(() => {
+    if (isProd === null) return;
     const obs = new IntersectionObserver(
       (entries) => {
         const vis = entries.filter((e) => e.isIntersecting)
@@ -169,12 +214,12 @@ export default function Manual() {
       },
       { rootMargin: '-80px 0px -65% 0px', threshold: 0 },
     );
-    SECTIONS.forEach((s) => {
+    chapters.forEach((s) => {
       const el = document.getElementById(s.id);
       if (el) obs.observe(el);
     });
     return () => obs.disconnect();
-  }, []);
+  }, [chapters, isProd]);
 
   // esc closes the lightbox
   React.useEffect(() => {
@@ -184,6 +229,12 @@ export default function Manual() {
   }, []);
 
   const fig = (src: string, cap: string) => setZoom({ src, cap });
+
+  // Chapter numbers follow what is actually on the page, so hiding operator
+  // chapters in production never leaves gaps like "01, 03, 04".
+  const n = (id: string) => chapters.findIndex((s) => s.id === id) + 1;
+  // Operator chapters render only once the server has confirmed development.
+  const ops = isProd === false;
 
   return (
     <div className="min-h-screen bg-paper">
@@ -231,13 +282,17 @@ export default function Manual() {
             How to run your internship on ATLAS
           </h1>
           <p className="mt-4 max-w-[66ch] text-[16.5px] leading-relaxed text-ink-soft">
-            Everything the platform does, in the order you will need it: learn the architecture,
-            train on a borrowed GPU, upload your data, then ship a web app that passes all five
-            graduation checks. Every screenshot below is the real interface.
+            {ops
+              ? 'Everything the platform does, in the order you will need it: install and run it, learn the architecture, train on a borrowed GPU, upload your data, then ship a web app that passes all five graduation checks. Every screenshot below is the real interface.'
+              : 'Everything the platform does, in the order you will need it: learn the architecture, train on a borrowed GPU, upload your data, then ship a web app that passes all five graduation checks. Every screenshot below is the real interface.'}
           </p>
           <div className="mt-7 flex flex-wrap gap-2.5">
             {[
-              ['14', 'chapters'], ['18', 'screenshots'], ['6', 'topics'], ['5', 'rubric rules'],
+              [String(chapters.length), 'chapters'],
+              // Hiding the operator chapters drops exactly one figure: the
+              // Settings screenshot. Getting started and Troubleshooting have none.
+              [ops ? '16' : '15', 'screenshots'],
+              ['6', 'topics'], ['5', 'rubric rules'],
             ].map(([n, l]) => (
               <div key={l} className="rounded-xl border border-line bg-paper-card px-3.5 py-2">
                 <span className="text-[17px] font-extrabold text-ink">{n}</span>
@@ -260,7 +315,7 @@ export default function Manual() {
           <div className="lg:sticky lg:top-[85px] lg:max-h-[calc(100vh-105px)] lg:overflow-y-auto">
             <div className="eyebrow mb-3">Contents</div>
             <nav className="space-y-0.5">
-              {SECTIONS.map((s, i) => {
+              {chapters.map((s, i) => {
                 const on = active === s.id;
                 return (
                   <a
@@ -286,9 +341,10 @@ export default function Manual() {
         {/* article */}
         <article className="min-w-0 flex-1 space-y-14">
 
-          {/* ============ 01 GETTING STARTED ============ */}
+          {/* ============ GETTING STARTED (operator only) ============ */}
+          {ops && (
           <Section
-            id="start" eyebrow="Chapter 01" title="Getting started"
+            id="start" num={n('start')} title="Getting started"
             lead="ATLAS runs as a single program. One command sets up everything and serves the whole platform on one port — no Docker required."
           >
             <Step n={1} title="Check you have Python 3.10 or newer">
@@ -331,45 +387,74 @@ export default function Manual() {
               ]}
             />
           </Section>
+          )}
 
-          {/* ============ 02 SIGN IN ============ */}
+          {/* ============ SIGN IN ============ */}
           <Section
-            id="signin" eyebrow="Chapter 02" title="Signing in & roles"
-            lead="ATLAS ships with four demo accounts. Click any card on the sign-in page to fill the form instantly."
+            id="signin" num={n('signin')} title="Signing in & roles"
+            lead={ops
+              ? 'ATLAS ships with four demo accounts. Click any card on the sign-in page to fill the form instantly.'
+              : 'Sign in with the account your programme administrator issued you. What you can do depends on your role.'}
           >
-            <Figure num="Fig. 2.1" src="/manual/01-login.jpg" onZoom={fig}
-              caption="The sign-in page. Demo account cards sit below the form — clicking one fills in the credentials for you." />
+            <Figure num={`Fig. ${n('signin')}.1`} src="/manual/01-login.jpg" onZoom={fig}
+              caption={ops
+                ? 'The sign-in page. Demo account cards sit below the form — clicking one fills in the credentials for you.'
+                : 'The sign-in page. Enter the email and password issued to you, or use Continue with Google if your programme has it enabled.'} />
 
-            <Table
-              head={['Role', 'Email', 'Password', 'What they can do']}
-              rows={[
-                ['Supervisor', <M key="1">supervisor@atlas.id</M>, <M key="2">supervisor123</M>, 'Author curriculum, review apps, upload decks and datasets.'],
-                ['Intern', <M key="3">intern@atlas.id</M>, <M key="4">intern123</M>, 'Learn, run notebooks, upload data, ship the graduation app.'],
-                ['Admin', <M key="5">admin@atlas.id</M>, <M key="6">admin123</M>, 'Everything a supervisor can do, plus platform configuration.'],
-                ['Viewer', <M key="7">viewer@atlas.id</M>, <M key="8">viewer123</M>, 'Read-only access for guests and external reviewers.'],
-              ]}
-            />
-
-            <Note kind="warn" title="Change these before real use">
-              The demo accounts exist so you can explore immediately. Before running an actual
-              cohort, set <M>ATLAS_SEED_DEMO_DATA=false</M> and create real users, or at minimum
-              change every password.
-            </Note>
-
-            <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">Google sign-in</h3>
-            <p>
-              Set <M>ATLAS_GOOGLE_CLIENT_ID</M> and <M>ATLAS_GOOGLE_CLIENT_SECRET</M> to enable the
-              “Continue with Google” button. Until then the button explains that SSO is not
-              configured rather than failing silently.
-            </p>
+            {ops ? (
+              <>
+                <Table
+                  head={['Role', 'Email', 'Password', 'What they can do']}
+                  rows={demo.map((d) => [
+                    ROLE_LABEL[d.role] ?? d.role,
+                    <M key={`e-${d.email}`}>{d.email}</M>,
+                    <M key={`p-${d.email}`}>{d.password}</M>,
+                    ROLE_BLURB[d.role] ?? '',
+                  ])}
+                />
+                <Note kind="warn" title="Change these before real use">
+                  The demo accounts exist so you can explore immediately. Before running an actual
+                  cohort, set <M>ATLAS_SEED_DEMO_DATA=false</M> and create real users, or at minimum
+                  change every password.
+                </Note>
+                <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">Google sign-in</h3>
+                <p>
+                  Set <M>ATLAS_GOOGLE_CLIENT_ID</M> and <M>ATLAS_GOOGLE_CLIENT_SECRET</M> to enable
+                  the “Continue with Google” button. Until then the button explains that SSO is not
+                  configured rather than failing silently.
+                </p>
+              </>
+            ) : (
+              <>
+                <Table
+                  head={['Role', 'What they can do']}
+                  rows={[
+                    ['Supervisor', 'Author curriculum, upload datasets and preparation decks, and review the apps interns ship.'],
+                    ['Intern', 'Work through the lessons, run notebooks on the available compute, upload data, and ship the graduation app.'],
+                    ['Admin', 'Everything a supervisor can do, plus managing accounts and platform configuration.'],
+                    ['Viewer', 'Read-only access, for guests and external reviewers.'],
+                  ]}
+                />
+                <Note kind="info" title="No account yet?">
+                  Accounts are created by your programme administrator — there is no self-service
+                  sign-up. Ask your supervisor if you cannot sign in, or if you think your role is
+                  wrong.
+                </Note>
+                <p>
+                  If your programme has Google sign-in enabled, use <strong>Continue with
+                  Google</strong> instead of a password. If it is not enabled, the button will
+                  tell you so.
+                </p>
+              </>
+            )}
           </Section>
 
           {/* ============ 03 DASHBOARD ============ */}
           <Section
-            id="dashboard" eyebrow="Chapter 03" title="The dashboard"
+            id="dashboard" num={n('dashboard')} title="The dashboard"
             lead="Your control room. Four counters across the top, your six topics down the middle, level and activity on the right."
           >
-            <Figure num="Fig. 3.1" src="/manual/02-dashboard.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('dashboard')}.1`} src="/manual/02-dashboard.jpg" onZoom={fig}
               caption="The dashboard after signing in as a supervisor. Progress bars on each topic reflect completed stages; GPU badges mark the two heavy computer-vision tracks." />
 
             <Table
@@ -390,10 +475,10 @@ export default function Manual() {
 
           {/* ============ 04 CURRICULUM ============ */}
           <Section
-            id="curriculum" eyebrow="Chapter 04" title="Curriculum"
+            id="curriculum" num={n('curriculum')} title="Curriculum"
             lead="Six tracks, each with three stages. The material explains AI architecture for people who are not engineers."
           >
-            <Figure num="Fig. 4.1" src="/manual/03-curriculum.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('curriculum')}.1`} src="/manual/03-curriculum.jpg" onZoom={fig}
               caption="All six topics. Each card shows difficulty, estimated hours, task type and whether the track needs a GPU." />
 
             <Table
@@ -425,7 +510,7 @@ export default function Manual() {
               ))}
             </ul>
 
-            <Figure num="Fig. 4.2" src="/manual/04-topic-detail.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('curriculum')}.2`} src="/manual/04-topic-detail.jpg" onZoom={fig}
               caption="Inside a topic. The stage rail on the left tracks progress; the Complete button awards XP and unlocks the next stage." />
 
             <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">Interactive architecture diagrams</h3>
@@ -434,13 +519,13 @@ export default function Manual() {
               plain-language explanation of what happens there and why it matters — this is the
               part designed for laypeople.
             </p>
-            <Figure num="Fig. 4.3" src="/manual/05-architecture.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('curriculum')}.3`} src="/manual/05-architecture.jpg" onZoom={fig}
               caption="The architecture block inside Corrosion Type Segmentation. Each node expands into an explanation written for a non-technical reader." />
           </Section>
 
           {/* ============ 05 AUTHORING ============ */}
           <Section
-            id="authoring" eyebrow="Chapter 05" title="Authoring lessons"
+            id="authoring" num={n('authoring')} title="Authoring lessons"
             lead="Supervisors write material through the interface. No code, no repository access, no developer in the loop."
           >
             <Note kind="info" title="Who can edit">
@@ -464,7 +549,7 @@ export default function Manual() {
               <strong> Save stage</strong> publishes it immediately.
             </Step>
 
-            <Figure num="Fig. 5.1" src="/manual/06-cms-editor.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('authoring')}.1`} src="/manual/06-cms-editor.jpg" onZoom={fig}
               caption="Editing an existing stage. Title, hook, duration and XP sit at the top; the content blocks follow underneath." />
 
             <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">The eight block types</h3>
@@ -481,16 +566,16 @@ export default function Manual() {
                 ['Video embed', 'A YouTube or Drive embed URL.'],
               ]}
             />
-            <Figure num="Fig. 5.2" src="/manual/07-block-palette.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('authoring')}.2`} src="/manual/07-block-palette.jpg" onZoom={fig}
               caption="The block palette open inside the editor. Pick a type and it is appended to the lesson body." />
           </Section>
 
           {/* ============ 06 PLAYGROUND ============ */}
           <Section
-            id="playground" eyebrow="Chapter 06" title="Playground & GPUs"
+            id="playground" num={n('playground')} title="Playground & GPUs"
             lead="Every topic has its own notebook. Heavy vision training is routed to a borrowed GPU automatically — this server has none, and needs none."
           >
-            <Figure num="Fig. 6.1" src="/manual/08-playground.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('playground')}.1`} src="/manual/08-playground.jpg" onZoom={fig}
               caption="The playground. Topic tabs across the top, the notebook preview in the middle, and the launch panel on the right." />
 
             <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">Choosing where it runs</h3>
@@ -509,7 +594,7 @@ export default function Manual() {
               to work while taking hours, so the platform refuses to let that happen quietly.
             </Note>
 
-            <Figure num="Fig. 6.2" src="/manual/09-playground-gpu.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('playground')}.2`} src="/manual/09-playground-gpu.jpg" onZoom={fig}
               caption="Corrosion Type Segmentation selected. The notebook is marked GPU required and Colab is pre-selected in the launch panel." />
 
             <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">How the bridge works</h3>
@@ -533,19 +618,27 @@ export default function Manual() {
               trained file is never stranded on a Colab machine that is about to disconnect.
             </p>
 
-            <Note kind="warn" title="Remote GPUs need a reachable address">
-              Colab and Kaggle call back to whatever <M>ATLAS_PUBLIC_BASE_URL</M> says. On
-              <M>localhost</M> that is fine because you open the notebook yourself, but on a
-              deployed server it must be the public URL or results will never arrive.
-            </Note>
+            {ops ? (
+              <Note kind="warn" title="Remote GPUs need a reachable address">
+                Colab and Kaggle call back to whatever <M>ATLAS_PUBLIC_BASE_URL</M> says. On
+                <M>localhost</M> that is fine because you open the notebook yourself, but on a
+                deployed server it must be the public URL or results will never arrive.
+              </Note>
+            ) : (
+              <Note kind="info" title="Leave the run open until it finishes">
+                A remote run reports back to ATLAS on its own. Keep the Colab or Kaggle tab open
+                until the status turns <strong>Succeeded</strong> — closing it early stops the
+                notebook, and metrics or artifacts from that run will never arrive.
+              </Note>
+            )}
           </Section>
 
           {/* ============ 07 DATA ============ */}
           <Section
-            id="data" eyebrow="Chapter 07" title="Datasets & decks"
+            id="data" num={n('data')} title="Datasets & decks"
             lead="Upload data and slides, and the platform reads them for you: spreadsheet schema, row counts, slide titles — all captured automatically."
           >
-            <Figure num="Fig. 7.1" src="/manual/10-datasets.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('data')}.1`} src="/manual/10-datasets.jpg" onZoom={fig}
               caption="The dataset library. Every upload records its schema, size, pipeline stage, version and who uploaded it." />
 
             <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">Pipeline stages</h3>
@@ -580,16 +673,16 @@ export default function Manual() {
               each topic&apos;s dataset was prepared, so an intern joining mid-programme can see
               the reasoning rather than guessing from the file.
             </p>
-            <Figure num="Fig. 7.2" src="/manual/11-decks.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('data')}.2`} src="/manual/11-decks.jpg" onZoom={fig}
               caption="The decks tab. Slide titles are pulled out of the file on upload and listed under each deck." />
           </Section>
 
           {/* ============ 08 DEPLOYMENT ============ */}
           <Section
-            id="deployment" eyebrow="Chapter 08" title="Shipping your app"
+            id="deployment" num={n('deployment')} title="Shipping your app"
             lead="The graduation deliverable. ATLAS checks your app against five requirements, generates a Dockerfile and deploys it in one click."
           >
-            <Figure num="Fig. 8.1" src="/manual/12-deployment.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('deployment')}.1`} src="/manual/12-deployment.jpg" onZoom={fig}
               caption="A deployment scoring 100%. All five rubric rules pass, and the Whimsical board URL required by R5 has been saved." />
 
             <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">The five requirements</h3>
@@ -640,10 +733,10 @@ export default function Manual() {
 
           {/* ============ 09 PORTAL ============ */}
           <Section
-            id="portal" eyebrow="Chapter 09" title="App portal"
+            id="portal" num={n('portal')} title="App portal"
             lead="Every app that reaches the running state is published here automatically, so the cohort's work documents itself."
           >
-            <Figure num="Fig. 9.1" src="/manual/13-portal.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('portal')}.1`} src="/manual/13-portal.jpg" onZoom={fig}
               caption="The portal. Each entry shows its framework, owner, topic, rubric score and a direct link to the live app." />
             <p>
               You never add anything to the portal by hand. When a deployment starts running it is
@@ -654,10 +747,10 @@ export default function Manual() {
 
           {/* ============ 10 PROGRESS ============ */}
           <Section
-            id="progress" eyebrow="Chapter 10" title="XP & leaderboard"
+            id="progress" num={n('progress')} title="XP & leaderboard"
             lead="Progress is scored so the cohort can see momentum without anyone chasing a spreadsheet."
           >
-            <Figure num="Fig. 10.1" src="/manual/14-leaderboard.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('progress')}.1`} src="/manual/14-leaderboard.jpg" onZoom={fig}
               caption="The cohort leaderboard, ranked by total XP with each member's level alongside." />
             <Table
               head={['Action', 'Reward']}
@@ -675,12 +768,13 @@ export default function Manual() {
             </p>
           </Section>
 
-          {/* ============ 11 SETTINGS ============ */}
+          {/* ============ SETTINGS (operator only) ============ */}
+          {ops && (
           <Section
-            id="settings" eyebrow="Chapter 11" title="Settings & configuration"
+            id="settings" num={n('settings')} title="Settings & configuration"
             lead="Settings shows which integrations are live. Everything is driven by environment variables, so nothing sensitive lives in the database."
           >
-            <Figure num="Fig. 11.1" src="/manual/15-settings.jpg" onZoom={fig}
+            <Figure num={`Fig. ${n('settings')}.1`} src="/manual/15-settings.jpg" onZoom={fig}
               caption="The settings page. Each integration reports whether it is configured, without ever revealing the secret itself." />
             <Table
               head={['Variable', 'Purpose']}
@@ -700,10 +794,11 @@ export default function Manual() {
               that file for you with a freshly generated secret key.
             </Note>
           </Section>
+          )}
 
-          {/* ============ 12 MOBILE ============ */}
+          {/* ============ MOBILE ============ */}
           <Section
-            id="mobile" eyebrow="Chapter 12" title="On mobile"
+            id="mobile" num={n('mobile')} title="On mobile"
             lead="The full platform works on a phone. Navigation collapses into a menu and every table scrolls rather than overflowing."
           >
             <div className="my-7 flex flex-wrap items-start gap-7">
@@ -729,9 +824,10 @@ export default function Manual() {
             </div>
           </Section>
 
-          {/* ============ 13 TROUBLESHOOTING ============ */}
+          {/* ============ TROUBLESHOOTING (operator only) ============ */}
+          {ops && (
           <Section
-            id="trouble" eyebrow="Chapter 13" title="Troubleshooting"
+            id="trouble" num={n('trouble')} title="Troubleshooting"
             lead="The failures people actually hit, and what each one really means."
           >
             {[
@@ -800,10 +896,11 @@ export default function Manual() {
               </details>
             ))}
           </Section>
+          )}
 
-          {/* ============ 14 GLOSSARY ============ */}
+          {/* ============ GLOSSARY ============ */}
           <Section
-            id="glossary" eyebrow="Chapter 14" title="Glossary"
+            id="glossary" num={n('glossary')} title="Glossary"
             lead="Terms used across the platform, in plain language."
           >
             <Table

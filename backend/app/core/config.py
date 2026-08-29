@@ -49,6 +49,19 @@ class Settings(BaseSettings):
     seed_demo_data: bool = True
 
     @property
+    def is_production(self) -> bool:
+        """
+        True unless this is an explicitly non-production environment.
+
+        Deliberately fail-closed: anything other than a known development-style
+        value is treated as production, so a typo in ATLAS_ENVIRONMENT hides
+        operator material rather than exposing it.
+        """
+        return self.environment.strip().lower() not in {
+            "development", "dev", "local", "test", "testing",
+        }
+
+    @property
     def db_url(self) -> str:
         if self.database_url:
             return self.database_url

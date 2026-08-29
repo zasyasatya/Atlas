@@ -30,3 +30,6 @@ storage/
 .DS_Store
 .idea/
 .vscode/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

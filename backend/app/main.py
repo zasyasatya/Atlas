@@ -61,6 +61,10 @@ def public_config() -> dict:
         "colab_configured": bool(settings.github_token and settings.colab_github_repo),
         "kaggle_configured": bool(settings.kaggle_username and settings.kaggle_key),
         "deploy_driver": settings.deploy_driver,
+        # Drives what the UI shows: production hides operator material
+        # (setup commands, env vars, demo credentials) from end users.
+        "environment": settings.environment,
+        "is_production": settings.is_production,
     }
 
 

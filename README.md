@@ -120,6 +120,7 @@ Everything is environment-driven. Copy `.env.example` to `.env`.
 
 | Variable | Purpose |
 |---|---|
+| `ATLAS_ENVIRONMENT` | `development` or `production`. Controls the public/operator split below. Anything unrecognised is treated as production |
 | `ATLAS_SECRET_KEY` | JWT signing key — change in production |
 | `ATLAS_PUBLIC_BASE_URL` | Public URL. **Remote notebooks call back here** — the GPU bridge needs it |
 | `ATLAS_DATABASE_URL` | Defaults to SQLite under `storage/`; accepts Postgres |
@@ -158,12 +159,46 @@ Interactive docs at `/api/docs`.
 
 ---
 
+## Development vs production
+
+The same build serves two audiences. `ATLAS_ENVIRONMENT` decides which one.
+
+| | `development` (default for `python run.py`) | `production` (default in Docker/Coolify) |
+|---|---|---|
+| Manual chapters | 14 — everything | 11 — end-user content only |
+| Getting started / Settings / Troubleshooting | Shown | Hidden |
+| Demo account cards on the sign-in page | Shown, form prefilled | Hidden, form empty |
+| `GET /api/auth/demo-accounts` | `200` with credentials | `404` |
+| Env-var tables and callback-URL setup notes | Shown | Hidden |
+
+Interns and instructors on a deployed instance see only what they need: how to sign
+in, learn, run notebooks, upload data and ship an app. Instructions for installing
+and operating the platform stay on the operator's machine.
+
+The switch is **fail-closed**: only `development`, `dev`, `local`, `test` and
+`testing` unlock the operator content. A typo, an empty value or `staging` all
+resolve to production, so a misconfigured deployment hides too much rather than
+leaking credentials. The browser also assumes production until `/api/config`
+answers, so operator content never flashes on screen during load.
+
+```bash
+python run.py                                  # development
+ATLAS_ENVIRONMENT=production python run.py     # what a deployment looks like
+```
+
+Hiding the demo endpoint does not disable the accounts — it only stops handing
+passwords to anonymous callers. Set `ATLAS_SEED_DEMO_DATA=false` before a real
+cohort, or change every password.
+
+---
+
 ## Docs
 
 | Where | What |
 |---|---|
-| `/manual` (in the running app) | Illustrated user manual: 14 chapters, 16 real screenshots. No sign-in needed. |
+| `/manual` (in the running app) | Illustrated user manual. 14 chapters in development, 11 in production. No sign-in needed. |
 | `tests/e2e.py` | 22 browser checks covering auth, curriculum, compute, rubric and the manual. |
+| `tests/prod_mode.py` | 25 checks that production really hides the operator content. Needs a dev **and** a prod instance. |
 | `tests/capture_manual.py` | Recaptures every manual screenshot from the running app. |
 
 - `docs/PRD.md` — full product requirements, design rationale and verification log

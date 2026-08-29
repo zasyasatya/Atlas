@@ -7,22 +7,48 @@ import { Button, Field, Input, useToast } from '../components/UI';
 import { Logo } from '../components/Shell';
 import { IcArrowRight, IcBook, IcLock } from '../components/Icons';
 
-const DEMO = [
-  { email: 'supervisor@atlas.id', password: 'supervisor123', role: 'Supervisor', note: 'authors content, reviews apps' },
-  { email: 'intern@atlas.id', password: 'intern123', role: 'Intern', note: 'learns, runs notebooks, ships apps' },
-  { email: 'admin@atlas.id', password: 'admin123', role: 'Admin', note: 'full platform control' },
-];
+type DemoAccount = { email: string; password: string; role: string; name?: string };
+
+// Labels only. The credentials themselves are fetched from the server, never
+// bundled: a static export ships both branches of a conditional, so hardcoding
+// them would leave working passwords in the JS of a production deployment.
+const ROLE_LABEL: Record<string, string> = {
+  supervisor: 'Supervisor', intern: 'Intern', admin: 'Admin', viewer: 'Viewer',
+};
+const ROLE_NOTE: Record<string, string> = {
+  supervisor: 'authors content, reviews apps',
+  intern: 'learns, runs notebooks, ships apps',
+  admin: 'full platform control',
+  viewer: 'read-only access',
+};
 
 export default function Login() {
   const router = useRouter();
   const { show, node } = useToast();
-  const [email, setEmail] = React.useState('supervisor@atlas.id');
-  const [password, setPassword] = React.useState('supervisor123');
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [googleId, setGoogleId] = React.useState('');
+  // Assume production until the server says otherwise, so demo credentials
+  // never flash on a public deployment.
+  const [isProd, setIsProd] = React.useState<boolean | null>(null);
+
+  const [demo, setDemo] = React.useState<DemoAccount[]>([]);
 
   React.useEffect(() => {
-    api.get<any>('/api/config').then((c) => setGoogleId(c.google_client_id || '')).catch(() => {});
+    api.get<any>('/api/config')
+      .then((c) => { setGoogleId(c.google_client_id || ''); setIsProd(!!c.is_production); })
+      .catch(() => setIsProd(true));
+    // 404s in production, which is the point - no cards, no prefill.
+    api.get<DemoAccount[]>('/api/auth/demo-accounts')
+      .then((list) => {
+        if (!Array.isArray(list) || !list.length) return;
+        setDemo(list);
+        const first = list.find((d) => d.role === 'supervisor') ?? list[0];
+        setEmail((v) => v || first.email);
+        setPassword((v) => v || first.password);
+      })
+      .catch(() => setDemo([]));
   }, []);
 
   const [ephemeral, setEphemeral] = React.useState(false);
@@ -130,24 +156,26 @@ export default function Login() {
             <IcArrowRight size={15} className="text-ink-faint group-hover:text-sage-600 shrink-0" />
           </Link>
 
+          {isProd === false && demo.length > 0 && (
           <div className="mt-8 pt-6 border-t border-line">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-faint mb-3">
               <IcLock size={12} /> DEMO ACCOUNTS
             </div>
             <div className="space-y-1.5">
-              {DEMO.map((d) => (
+              {demo.map((d) => (
                 <button key={d.email} type="button"
                   onClick={() => { setEmail(d.email); setPassword(d.password); }}
                   className="w-full text-left px-3 py-2 rounded-xl border border-line hover:border-sage-300 hover:bg-sage-50 transition-colors group">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-bold text-ink">{d.role}</span>
+                    <span className="text-[13px] font-bold text-ink">{ROLE_LABEL[d.role] ?? d.role}</span>
                     <span className="text-[11px] text-ink-faint group-hover:text-sage-600 mono">{d.email}</span>
                   </div>
-                  <div className="text-[11px] text-ink-muted mt-0.5">{d.note}</div>
+                  <div className="text-[11px] text-ink-muted mt-0.5">{ROLE_NOTE[d.role] ?? ''}</div>
                 </button>
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
 

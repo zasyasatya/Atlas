@@ -65,8 +65,19 @@ def me(user: CurrentUser) -> UserOut:
 
 @router.get("/demo-accounts")
 def demo_accounts() -> list[dict]:
+    """
+    Seeded demo credentials, for development convenience only.
+
+    This hands out plaintext passwords to unauthenticated callers, so it is
+    disabled outside development - otherwise a production deployment would
+    publish working logins to anyone who found the URL.
+    """
+    if settings.is_production:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    # Derived from the seed list so the two can never drift apart.
+    from app.services.seed import USERS
+
     return [
-        {"email": "supervisor@atlas.id", "password": "supervisor123", "role": "supervisor"},
-        {"email": "intern@atlas.id", "password": "intern123", "role": "intern"},
-        {"email": "admin@atlas.id", "password": "admin123", "role": "admin"},
+        {"email": email, "password": password, "role": role.value.lower(), "name": name}
+        for email, name, role, password, _cohort in USERS
     ]
