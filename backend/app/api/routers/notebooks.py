@@ -8,6 +8,7 @@ from fastapi import APIRouter, File, Header, HTTPException, Query, Request, Uplo
 from fastapi.responses import JSONResponse, Response
 
 from app.api.deps import CurrentUser, EditorUser, SessionDep
+from app.services import access
 from app.core.config import settings
 from app.domain.enums import ComputeTarget, RunStatus
 from app.domain.models import Asset, Notebook, Run, User
@@ -48,7 +49,11 @@ def list_notebooks(session: SessionDep, user: CurrentUser, topic_id: int | None 
     stmt = select(Notebook)
     if topic_id is not None:
         stmt = stmt.where(Notebook.topic_id == topic_id)
-    return [_nb_out(nb) for nb in session.exec(stmt)]
+    rows = list(session.exec(stmt))
+    if access.restricted(user):
+        allowed = access.assigned_topic_ids(session, user.id or 0)
+        rows = [nb for nb in rows if nb.topic_id in allowed]
+    return [_nb_out(nb) for nb in rows]
 
 
 @router.get("/notebooks/{notebook_id}")
@@ -56,6 +61,7 @@ def get_notebook(notebook_id: int, session: SessionDep, user: CurrentUser) -> di
     nb = session.get(Notebook, notebook_id)
     if not nb:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Notebook not found")
+    access.assert_topic_visible(session, user, nb.topic_id)
     return {**_nb_out(nb).model_dump(), "content": json.loads(nb.content_json or "{}")}
 
 
@@ -105,6 +111,7 @@ def export_notebook(notebook_id: int, session: SessionDep, user: CurrentUser) ->
     nb = session.get(Notebook, notebook_id)
     if not nb:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Notebook not found")
+    access.assert_topic_visible(session, user, nb.topic_id)
     return Response(content=nb.content_json, media_type="application/x-ipynb+json",
                     headers={"Content-Disposition": f'attachment; filename="{nb.slug}.ipynb"'})
 

@@ -165,15 +165,31 @@ The same build serves two audiences. `ATLAS_ENVIRONMENT` decides which one.
 
 | | `development` (default for `python run.py`) | `production` (default in Docker/Coolify) |
 |---|---|---|
-| Manual chapters | 14 — everything | 11 — end-user content only |
+| Manual chapters | 16 — everything | 12 — end-user content only |
 | Getting started / Settings / Troubleshooting | Shown | Hidden |
 | Demo account cards on the sign-in page | Shown, form prefilled | Hidden, form empty |
 | `GET /api/auth/demo-accounts` | `200` with credentials | `404` |
 | Env-var tables and callback-URL setup notes | Shown | Hidden |
+| Topics an intern can see | All of them | **Only the ones a supervisor assigned** |
 
 Interns and instructors on a deployed instance see only what they need: how to sign
 in, learn, run notebooks, upload data and ship an app. Instructions for installing
 and operating the platform stay on the operator's machine.
+
+### Topic assignments
+
+On a production instance an intern sees only the topics a supervisor has ticked for
+them. That covers the topic list, the topic page, its notebook, its `.ipynb` export,
+its datasets and its reference pipeline - a guessed URL returns `404`, not `403`, so
+the shape of the curriculum is not leaked to someone who is not enrolled in it.
+Supervisors, admins and viewers are never restricted.
+
+Supervisors manage this from **Curriculum -> Topic assignments**: a grid of interns
+against topics, one click per grant. The seeded demo intern starts with three topics
+so the gate is visible without looking broken.
+
+Development stays wide open on purpose - a fresh install should be explorable before
+anyone has wired up a single assignment.
 
 The switch is **fail-closed**: only `development`, `dev`, `local`, `test` and
 `testing` unlock the operator content. A typo, an empty value or `staging` all
@@ -196,12 +212,13 @@ cohort, or change every password.
 
 | Where | What |
 |---|---|
-| `/manual` (in the running app) | Illustrated user manual. 14 chapters in development, 11 in production. No sign-in needed. |
+| `/manual` (in the running app) | Illustrated user manual. 16 chapters in development, 12 in production. No sign-in needed. |
 | `tests/e2e.py` | 22 browser checks covering auth, curriculum, compute, rubric and the manual. |
 | `tests/prod_mode.py` | 26 checks that production really hides the operator content. Needs a dev **and** a prod instance. |
 | `tests/lesson_contract.py` | 13 checks that every seeded lesson block matches what `BlockRenderer.tsx` reads. Catches blocks that would render blank. |
 | `tests/google_auth.py` | 31 checks on Google id_token verification: forged signatures, `alg=none`, algorithm confusion, wrong audience, expiry, unverified email, nonce replay, PKCE. No network needed. |
 | `tests/google_flow.py` | 23 checks driving a full sign-in against a stand-in Google: authorize, code exchange, callback, session, and replay rejection. |
+| `tests/assignments.py` | 34 checks that assignment gating holds on every topic-scoped route, and that the pipeline library serves files without path traversal. Needs a dev **and** a prod instance. |
 | `tests/capture_manual.py` | Recaptures every manual screenshot from the running app. |
 
 ### Topic 6 reference implementation

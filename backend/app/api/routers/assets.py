@@ -8,6 +8,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import CurrentUser, EditorUser, SessionDep
+from app.services import access
 from app.domain.enums import AssetKind
 from app.domain.models import Asset, User
 from app.domain.schemas import AssetOut
@@ -35,7 +36,12 @@ def _out(session, asset: Asset) -> AssetOut:
 @router.get("", response_model=list[AssetOut])
 def list_assets(session: SessionDep, user: CurrentUser,
                 topic_id: int | None = None, kind: AssetKind | None = None) -> list[AssetOut]:
-    return [_out(session, a) for a in asset_service.list_assets(session, topic_id=topic_id, kind=kind)]
+    rows = asset_service.list_assets(session, topic_id=topic_id, kind=kind)
+    if access.restricted(user):
+        allowed = access.assigned_topic_ids(session, user.id or 0)
+        # Assets with no topic are platform-wide and stay visible.
+        rows = [a for a in rows if a.topic_id is None or a.topic_id in allowed]
+    return [_out(session, a) for a in rows]
 
 
 @router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED)

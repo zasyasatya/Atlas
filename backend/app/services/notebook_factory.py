@@ -813,10 +813,11 @@ if len(test_ds):
 `corrosion_unet_best.pt` carries its own class names and input size, so the
 deployment app can rebuild the model without being told how it was trained.
 
-Next: the **Deployment** tab. The Streamlit template in
-`templates/corrosion_unet/app.py` already meets all five rubric rules - single
-and bulk input, the four documentation sections, confidence scores and charts.
-Point it at this checkpoint, then attach the deployed URL in Whimsical."""),
+Next: the **Deployment** tab. The Streamlit reference app already meets all five
+rubric rules - single and bulk input, the four documentation sections, confidence
+scores and charts. Open it in the platform under **Pipeline Library -> Corrosion
+U-Net** (file `app.py`), or download the whole folder as a zip from there. Point
+it at this checkpoint, then attach the deployed URL in Whimsical."""),
 
         _code("""atlas.artifact("corrosion_unet_best.pt")
 atlas.log("checkpoint uploaded - attach it in the Deployment tab")

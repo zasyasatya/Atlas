@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlmodel import Field, SQLModel
+from sqlalchemy import UniqueConstraint
 
 from app.domain.enums import (
     AppFramework,
@@ -52,6 +53,24 @@ class User(SQLModel, table=True):
     role: Role = Field(default=Role.INTERN)
     cohort: str = ""
     is_active: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class Assignment(SQLModel, table=True):
+    """A supervisor granting one intern access to one topic.
+
+    In production an intern sees only what they have been assigned; in
+    development everything is open so the platform is explorable out of the
+    box. Supervisors, admins and viewers are never restricted.
+    """
+    __tablename__ = "assignments"
+    __table_args__ = (UniqueConstraint("user_id", "topic_id", name="uq_assignment"),)
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, foreign_key="users.id")
+    topic_id: int = Field(index=True, foreign_key="topics.id")
+    assigned_by: int = Field(foreign_key="users.id")
+    note: str = ""
+    due_at: datetime | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 

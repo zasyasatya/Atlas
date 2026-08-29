@@ -616,9 +616,10 @@ def _lesson_deploy() -> dict:
 
             (B.TEXT, {"body":
                 "**The five rubric rules**\n"
-                "The Streamlit template in `templates/corrosion_unet/app.py` already satisfies "
-                "all of them. Point it at your checkpoint, check each rule yourself, then "
-                "deploy.\n"
+                "The Streamlit reference app already satisfies all of them. Open it under "
+                "**Pipeline Library -> Corrosion U-Net** (file `app.py`), read it, or "
+                "download the folder as a zip. Point it at your checkpoint, check each "
+                "rule yourself, then deploy.\n"
                 "- **R1 Framework** - Streamlit or Gradio only. The template is Streamlit.\n"
                 "- **R2 Input** - single entry *and* bulk upload. The Analyse tab takes one "
                 "photo, or many files, or a ZIP.\n"

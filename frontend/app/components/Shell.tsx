@@ -5,13 +5,14 @@ import React from 'react';
 import { auth, storageIsEphemeral, User } from '@/lib/api';
 import {
   IcApps, IcBook, IcDatabase, IcFlask, IcGrid, IcLogout, IcMenu, IcRocket,
-  IcSettings, IcTrophy, IcX,
+  IcCode, IcSettings, IcTrophy, IcX,
 } from './Icons';
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: IcGrid },
   { href: '/curriculum', label: 'Curriculum', icon: IcBook },
   { href: '/playground', label: 'Playground', icon: IcFlask },
+  { href: '/pipelines', label: 'Pipeline Library', icon: IcCode },
   { href: '/datasets', label: 'Datasets & Decks', icon: IcDatabase },
   { href: '/deployment', label: 'Deployment', icon: IcRocket },
   { href: '/portal', label: 'App Portal', icon: IcApps },

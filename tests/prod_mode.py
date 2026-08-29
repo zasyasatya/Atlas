@@ -109,8 +109,8 @@ def main() -> int:
         dev_nav = page.eval_on_selector_all(
             "aside a[href^='#']", "els => els.map(e => e.textContent.trim())"
         )
-        check("all 14 chapters render", len(dev_titles) == 14, f"{len(dev_titles)} sections")
-        check("sidebar lists 14 chapters", len(dev_nav) == 14, f"{len(dev_nav)} links")
+        check("all 16 chapters render", len(dev_titles) == 16, f"{len(dev_titles)} sections")
+        check("sidebar lists 16 chapters", len(dev_nav) == 16, f"{len(dev_nav)} links")
         missing = [c for c in OPERATOR_CHAPTERS if not any(c in t for t in dev_titles)]
         check("operator chapters present", not missing, f"missing={missing}" if missing else "")
         body = page.inner_text("body")
@@ -131,8 +131,8 @@ def main() -> int:
         prod_nav = page.eval_on_selector_all(
             "aside a[href^='#']", "els => els.map(e => e.textContent.trim())"
         )
-        check("11 chapters render", len(prod_titles) == 11, f"{len(prod_titles)} sections")
-        check("sidebar lists 11 chapters", len(prod_nav) == 11, f"{len(prod_nav)} links")
+        check("12 chapters render", len(prod_titles) == 12, f"{len(prod_titles)} sections")
+        check("sidebar lists 12 chapters", len(prod_nav) == 12, f"{len(prod_nav)} links")
         leaked = [c for c in OPERATOR_CHAPTERS if any(c in t for t in prod_titles)]
         check("operator chapters hidden", not leaked, f"leaked={leaked}" if leaked else "")
 
@@ -145,12 +145,12 @@ def main() -> int:
         check("no env-var config in text", not leaked_env,
               f"leaked={leaked_env}" if leaked_env else "")
 
-        # numbering must stay contiguous 01..11
+        # numbering must stay contiguous 01..12
         eyebrows = page.eval_on_selector_all(
             "section[id] .eyebrow", "els => els.map(e => e.textContent.trim())"
         )
         chapters_only = [e for e in eyebrows if e.startswith("Chapter ")]
-        expected = [f"Chapter {i:02d}" for i in range(1, 12)]
+        expected = [f"Chapter {i:02d}" for i in range(1, 13)]
         check("chapter numbers are contiguous", chapters_only == expected,
               f"{chapters_only[:3]}...{chapters_only[-1:]}" if chapters_only else "none")
 

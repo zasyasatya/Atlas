@@ -5,6 +5,7 @@ import { api, auth, Topic } from '@/lib/api';
 import { Page, PageHeader, Shell } from '../components/Shell';
 import { Badge, Button, Card, Field, Input, Modal, Progress, Select, Skeleton, Textarea, useToast } from '../components/UI';
 import { IcArrowRight, IcBook, IcClock, IcGpu, IcPlus, ICON_MAP, IcSpark } from '../components/Icons';
+import { AssignmentManager, NoAssignments } from '../components/Assignments';
 
 const ICON_CHOICES = ['activity','scan','file-text','trending-up','message-square','layers','sparkles','database','rocket','target','flask'];
 const ACCENTS = ['#5B8C6E','#3F6B52','#4F7D8C','#8C7A4F','#6B5B8C','#8C5B4F'];
@@ -12,11 +13,16 @@ const ACCENTS = ['#5B8C6E','#3F6B52','#4F7D8C','#8C7A4F','#6B5B8C','#8C5B4F'];
 export default function Curriculum() {
   const [topics, setTopics] = React.useState<Topic[] | null>(null);
   const [open, setOpen] = React.useState(false);
+  const [access, setAccess] = React.useState<{ enforced: boolean; restricted: boolean } | null>(null);
   const { show, node } = useToast();
   const canEdit = auth.canEdit();
 
   const load = React.useCallback(() => api.get<Topic[]>('/api/topics').then(setTopics).catch(() => setTopics([])), []);
   React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => {
+    api.get<{ enforced: boolean; restricted: boolean }>('/api/my-access')
+      .then(setAccess).catch(() => setAccess(null));
+  }, []);
 
   return (
     <Shell>
@@ -26,6 +32,7 @@ export default function Curriculum() {
 
       <Page>
         {!topics && <div className="grid md:grid-cols-2 gap-4">{[0,1,2,3].map(i => <Skeleton key={i} className="h-44" />)}</div>}
+        {topics && topics.length === 0 && access?.restricted && <NoAssignments />}
         <div className="grid md:grid-cols-2 gap-4">
           {topics?.map((t, idx) => {
             const Icon = ICON_MAP[t.icon] || IcSpark;
@@ -64,6 +71,12 @@ export default function Curriculum() {
             );
           })}
         </div>
+
+        {canEdit && topics && topics.length > 0 && (
+          <div className="mt-6">
+            <AssignmentManager topics={topics} />
+          </div>
+        )}
       </Page>
 
       <TopicModal open={open} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); load(); show('Topic created'); }} />

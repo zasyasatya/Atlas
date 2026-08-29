@@ -14,8 +14,8 @@ from app.core.security import hash_password
 from app.services.corrosion_lessons import corrosion_lessons
 from app.domain.enums import (AppFramework, ComputeTarget, DeploymentStatus,
                               LessonBlockType, Role)
-from app.domain.models import (Deployment, Lesson, LessonBlock, Notebook, Topic,
-                               User)
+from app.domain.models import (Assignment, Deployment, Lesson, LessonBlock, Notebook,
+                               Topic, User)
 from app.services import notebook_factory as nf
 
 USERS = [
@@ -251,3 +251,31 @@ def seed(session: Session) -> None:
         session.commit()
 
     _seed_demo_deployment(session)
+    _seed_demo_assignments(session)
+
+
+def _seed_demo_assignments(session: Session) -> None:
+    """Give the demo intern a starting cohort of topics.
+
+    Production hides unassigned topics, so a demo account with zero assignments
+    would land on an empty curriculum and look broken. Seeding the two CV topics
+    plus the tabular intro shows the gate working *and* leaves something to see:
+    the remaining three stay hidden until a supervisor grants them.
+    """
+    intern = session.exec(select(User).where(User.email == "intern@atlas.id")).first()
+    supervisor = session.exec(
+        select(User).where(User.email == "supervisor@atlas.id")).first()
+    if not intern or not supervisor:
+        return
+    if session.exec(select(Assignment).where(Assignment.user_id == intern.id)).first():
+        return
+
+    starter = ["predictive-maintenance", "pid-extractor", "corrosion-segmentation"]
+    for slug in starter:
+        topic = session.exec(select(Topic).where(Topic.slug == slug)).first()
+        if topic:
+            session.add(Assignment(
+                user_id=intern.id or 0, topic_id=topic.id or 0,
+                assigned_by=supervisor.id or 0,
+                note="Assigned during onboarding."))
+    session.commit()

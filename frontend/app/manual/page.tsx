@@ -4,8 +4,8 @@ import React from 'react';
 import { api } from '@/lib/api';
 import { Logo } from '../components/Shell';
 import {
-  IcApps, IcArrowLeft, IcBook, IcDatabase, IcFlask, IcGrid, IcRocket,
-  IcSettings, IcTrophy, IcX,
+  IcApps, IcArrowLeft, IcBook, IcCode, IcDatabase, IcFlask, IcGrid, IcRocket,
+  IcSettings, IcTrophy, IcUsers, IcX,
 } from '../components/Icons';
 
 /* ------------------------------------------------------------------ */
@@ -36,7 +36,9 @@ const SECTIONS = [
   { id: 'dashboard', label: 'The dashboard', icon: IcGrid },
   { id: 'curriculum', label: 'Curriculum', icon: IcBook },
   { id: 'authoring', label: 'Authoring lessons', icon: IcBook },
+  { id: 'assignments', label: 'Assigning topics', icon: IcUsers, operator: true },
   { id: 'playground', label: 'Playground & GPUs', icon: IcFlask },
+  { id: 'pipelines', label: 'Pipeline library', icon: IcCode },
   { id: 'data', label: 'Datasets & decks', icon: IcDatabase },
   { id: 'deployment', label: 'Shipping your app', icon: IcRocket },
   { id: 'portal', label: 'App portal', icon: IcApps },
@@ -592,6 +594,46 @@ export default function Manual() {
               caption="The block palette open inside the editor. Pick a type and it is appended to the lesson body." />
           </Section>
 
+          {/* ============ ASSIGNMENTS (operator only) ============ */}
+          {ops && (
+          <Section
+            id="assignments" num={n('assignments')} title="Assigning topics"
+            lead="On a production instance an intern sees only the topics you give them. This is where you decide who works on what."
+          >
+            <p>
+              Open <M>Curriculum</M> and scroll past the topic cards. Supervisors and admins
+              see a <M>Topic assignments</M> grid: every intern is a row, every topic a
+              column. Tick a box to grant access, untick it to take it away. Each click
+              saves immediately.
+            </p>
+
+            <Note kind="info" title="Development shows everything">
+              The gate only applies when <Code>ATLAS_ENVIRONMENT</Code> is set to production.
+              On a local install every topic stays visible, so you can explore the platform
+              before wiring up a single assignment.
+            </Note>
+
+            <p>
+              An assignment controls the whole topic, not just its card: the lesson pages, the
+              notebook, the <Code>.ipynb</Code> export, the datasets attached to it and its
+              reference pipeline. An intern who guesses the URL of an unassigned topic gets a
+              plain <Code>404</Code>. That is deliberate - a &quot;forbidden&quot; error would
+              confirm the topic exists and leak the shape of the programme.
+            </p>
+
+            <p>
+              Interns with nothing assigned see a short explanation on the curriculum page
+              rather than an empty screen, so the state reads as &quot;waiting for your
+              supervisor&quot; instead of &quot;broken&quot;.
+            </p>
+
+            <Note kind="warn" title="Supervisors are never restricted">
+              Supervisor, admin and viewer accounts always see the full curriculum. The gate
+              exists to focus interns, not to compartmentalise staff.
+            </Note>
+          </Section>
+          )}
+
           {/* ============ 06 PLAYGROUND ============ */}
           <Section
             id="playground" num={n('playground')} title="Playground & GPUs"
@@ -653,6 +695,41 @@ export default function Manual() {
                 notebook, and metrics or artifacts from that run will never arrive.
               </Note>
             )}
+          </Section>
+
+          {/* ============ PIPELINE LIBRARY ============ */}
+          <Section
+            id="pipelines" num={n('pipelines')} title="Pipeline library"
+            lead="The complete reference implementations the lessons point at, readable inside the platform - no repository checkout required."
+          >
+            <p>
+              Lessons often say &quot;look at how the reference does it&quot;. The{' '}
+              <M>Pipeline Library</M> tab is where that code lives. Pick a pipeline, click
+              a file, read it. Nothing to clone, nothing to install.
+            </p>
+
+            <Table
+              head={['Pipeline', 'What it is']}
+              rows={[
+                ['Corrosion U-Net - full pipeline',
+                 'The complete Topic 6 implementation: dataset discovery, a U-Net written out in full, damped class weighting, combined cross-entropy and Dice loss, IoU metrics, a CLI trainer, a Streamlit app that passes all five rubric rules, and a Dockerfile.'],
+                ['Streamlit starter', 'The minimum app that scores 100% on the rubric.'],
+                ['Gradio starter', 'The same, in Gradio.'],
+              ]}
+            />
+
+            <p>
+              <M>Download .zip</M> gives you the folder to run locally. Training outputs,
+              checkpoints and sample data are stripped out, so the corrosion pipeline is a
+              130 KB download rather than a 9 MB one - you get the code, not someone
+              else&apos;s run history.
+            </p>
+
+            <Note kind="info" title="Tied to your topics">
+              A pipeline attached to a topic follows that topic&apos;s access. On a production
+              instance the corrosion pipeline appears once the corrosion topic has been
+              assigned to you.
+            </Note>
           </Section>
 
           {/* ============ 07 DATA ============ */}

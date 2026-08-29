@@ -124,7 +124,7 @@ def main() -> int:
         anon.close()
 
         pg.goto(f'{BASE}/manual', wait_until='networkidle'); pg.wait_for_timeout(2000)
-        check('manual has 14 chapters', pg.locator('h2').count() == 14,
+        check('manual has 16 chapters', pg.locator('h2').count() == 16,
               f"({pg.locator('h2').count()})")
 
         pg.evaluate("()=>document.querySelectorAll('img').forEach(i=>i.loading='eager')")

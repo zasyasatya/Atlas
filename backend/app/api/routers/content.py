@@ -18,6 +18,7 @@ from app.domain.schemas import (
     TopicIn,
     TopicOut,
 )
+from app.services import access
 from app.services.activity import record
 
 router = APIRouter(prefix="/api", tags=["content"])
@@ -62,7 +63,9 @@ def _topic_out(session, topic: Topic, user_id: int | None) -> TopicOut:
 
 @router.get("/topics", response_model=list[TopicOut])
 def list_topics(session: SessionDep, user: CurrentUser) -> list[TopicOut]:
-    topics = session.exec(select(Topic).order_by(Topic.order_index)).all()
+    # In production an intern sees only assigned topics; everyone else, and all
+    # of development, sees the full curriculum.
+    topics = access.visible_topics(session, user)
     return [_topic_out(session, t, user.id) for t in topics]
 
 
@@ -85,6 +88,8 @@ def get_topic(slug: str, session: SessionDep, user: CurrentUser) -> TopicDetail:
     topic = session.exec(select(Topic).where(Topic.slug == slug)).first()
     if not topic:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
+    # Filtering the list is not enough - a guessed slug must 404 as well.
+    access.assert_topic_visible(session, user, topic.id)
     lessons = session.exec(
         select(Lesson).where(Lesson.topic_id == topic.id).order_by(Lesson.order_index)).all()
     done = {p.lesson_id for p in session.exec(

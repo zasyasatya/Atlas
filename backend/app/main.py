@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routers import assets, auth, content, dashboard, deployments, notebooks
+from app.api.routers import assignments, assets, auth, content, dashboard, deployments, notebooks
 from app.core.config import settings
 from app.core.db import init_db, session_scope
 from app.services.seed import seed
@@ -42,7 +42,7 @@ app.add_middleware(
 )
 
 for router in (auth.router, content.router, assets.router, notebooks.router,
-               deployments.router, dashboard.router):
+               deployments.router, dashboard.router, assignments.router):
     app.include_router(router)
 
 

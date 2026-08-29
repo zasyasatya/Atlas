@@ -3,9 +3,10 @@ import { useSearchParams } from 'next/navigation';
 import React, { Suspense } from 'react';
 import { api, Asset, fmtDate, Notebook, Run, Topic } from '@/lib/api';
 import { Page, PageHeader, Shell } from '../components/Shell';
+import { NotebookView } from '../components/Notebook';
 import { Badge, Button, Card, Empty, Field, Modal, Select, Skeleton, StatusDot, Tabs, useToast } from '../components/UI';
 import {
-  IcAlert, IcCheck, IcCloud, IcCode, IcCpu, IcDownload, IcExternal, IcFlask,
+  IcAlert, IcCheck, IcCloud, IcCpu, IcDownload, IcExternal, IcFlask,
   IcGpu, IcPlay, IcRefresh, IcSpark,
 } from '../components/Icons';
 
@@ -141,9 +142,9 @@ function Playground() {
                   tabs={[{ id: 'notebook', label: 'Notebook' }, { id: 'runs', label: 'Runs', count: topicRuns.length }]} />
 
                 {tab === 'notebook' ? (
-                  <div className="p-5 space-y-3 max-h-[620px] overflow-y-auto">
+                  <div className="p-4 max-h-[620px] overflow-y-auto bg-paper-deep">
                     {!nbDoc && <Skeleton className="h-40" />}
-                    {nbDoc?.cells?.map((cell: any, i: number) => <NotebookCell key={i} cell={cell} index={i} />)}
+                    {nbDoc && <NotebookView doc={nbDoc} />}
                   </div>
                 ) : (
                   <div className="divide-y divide-line max-h-[620px] overflow-y-auto">
@@ -340,94 +341,4 @@ function RunRow({ run }: { run: Run }) {
       )}
     </div>
   );
-}
-
-function NotebookCell({ cell, index }: { cell: any; index: number }) {
-  const src = Array.isArray(cell.source) ? cell.source.join('') : cell.source || '';
-  if (cell.cell_type === 'markdown') {
-    return <div className="prose-atlas text-[14px] px-1">{renderMarkdown(src)}</div>;
-  }
-  return (
-    <div className="rounded-xl overflow-hidden border border-line">
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-paper-deep border-b border-line">
-        <IcCode size={12} className="text-ink-faint" />
-        <span className="text-[10.5px] font-bold text-ink-muted">CELL {index + 1}</span>
-      </div>
-      <pre className="bg-[#161A13] text-[#DCE5DA] p-3.5 overflow-x-auto text-[12px] mono leading-relaxed">
-        <code>{src}</code>
-      </pre>
-    </div>
-  );
-}
-
-/** Minimal markdown renderer: headings, tables, lists, fenced code, inline styles. */
-function renderMarkdown(src: string) {
-  const lines = src.split('\n');
-  const out: JSX.Element[] = [];
-  let i = 0;
-  const inline = (t: string) =>
-    t.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((s, k) =>
-      s.startsWith('**') && s.endsWith('**') ? <strong key={k}>{s.slice(2, -2)}</strong> :
-      s.startsWith('`') && s.endsWith('`') ? <code key={k}>{s.slice(1, -1)}</code> :
-      <React.Fragment key={k}>{s}</React.Fragment>);
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // fenced code
-    if (line.trim().startsWith('```')) {
-      const buf: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].trim().startsWith('```')) buf.push(lines[i++]);
-      i++;
-      out.push(
-        <pre key={out.length} className="bg-[#161A13] text-[#DCE5DA] p-3 rounded-xl overflow-x-auto text-[11.5px] mono leading-relaxed my-2">
-          <code>{buf.join('\n')}</code>
-        </pre>);
-      continue;
-    }
-
-    // table
-    if (line.trim().startsWith('|')) {
-      const rows: string[][] = [];
-      while (i < lines.length && lines[i].trim().startsWith('|')) {
-        const cells = lines[i].split('|').slice(1, -1).map((c) => c.trim());
-        if (!cells.every((c) => /^:?-{2,}:?$/.test(c))) rows.push(cells);
-        i++;
-      }
-      if (rows.length) {
-        const [head, ...body] = rows;
-        out.push(
-          <div key={out.length} className="my-2.5 border border-line rounded-xl overflow-hidden overflow-x-auto">
-            <table className="w-full text-[12.5px]">
-              <thead className="bg-paper-deep">
-                <tr>{head.map((h, k) => <th key={k} className="px-3 py-2 text-left font-bold text-ink whitespace-nowrap">{inline(h)}</th>)}</tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {body.map((r, k) => (
-                  <tr key={k}>{r.map((c, j) => <td key={j} className="px-3 py-1.5 text-ink-soft align-top">{inline(c)}</td>)}</tr>
-                ))}
-              </tbody>
-            </table>
-          </div>);
-      }
-      continue;
-    }
-
-    if (line.startsWith('### ')) { out.push(<h4 key={out.length} className="text-[14px] font-bold text-ink mt-2.5 mb-1">{line.slice(4)}</h4>); i++; continue; }
-    if (line.startsWith('## ')) { out.push(<h3 key={out.length} className="text-[16px] font-extrabold tracking-[-0.02em] text-ink mt-3 mb-1.5">{line.slice(3)}</h3>); i++; continue; }
-    if (line.startsWith('# ')) { out.push(<h2 key={out.length} className="text-[19px] font-extrabold tracking-[-0.025em] text-ink mb-2">{line.slice(2)}</h2>); i++; continue; }
-    if (/^\s*[-*]\s+/.test(line)) {
-      out.push(
-        <div key={out.length} className="flex gap-2.5 mb-1">
-          <span className="w-1 h-1 rounded-full bg-sage-500 mt-2 shrink-0" />
-          <span className="text-[13.5px] text-ink-soft">{inline(line.replace(/^\s*[-*]\s+/, ''))}</span>
-        </div>);
-      i++; continue;
-    }
-    if (!line.trim()) { i++; continue; }
-    out.push(<p key={out.length} className="text-[13.5px] mb-1.5">{inline(line)}</p>);
-    i++;
-  }
-  return out;
 }
