@@ -173,6 +173,24 @@ Interactive docs at `/api/docs`.
 
 ## Troubleshooting
 
+### I pulled the latest code but the new pages are missing
+
+The compiled interface (`backend/app/static/`) is deliberately **not** in git —
+build output does not belong in version control. So `git pull` updates the
+source but never the bundle your server actually serves, and anything newly
+added returns 404.
+
+`python run.py` fingerprints the frontend source and rebuilds automatically when
+it no longer matches the bundle, so a plain start is enough. To force it:
+
+```bash
+python run.py --build
+```
+
+`python run.py --check` reports the bundle as **STALE** when this is the cause.
+If Node.js is missing, the rebuild cannot run and `run.py` says so explicitly
+rather than serving the old interface in silence.
+
 ### Login succeeds, then bounces straight back to the login page
 
 Almost always the browser is running a **stale or partial JavaScript bundle**,

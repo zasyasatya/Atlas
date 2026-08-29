@@ -18,6 +18,7 @@ installed, so it uses nothing outside the standard library.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import platform
 import shutil
@@ -137,11 +138,64 @@ def ui_present() -> bool:
     return (STATIC / "index.html").is_file()
 
 
+STAMP = STATIC / ".build-stamp"
+
+# Source that ends up inside the compiled bundle. node_modules, .next and out
+# are deliberately excluded - they are build inputs/outputs, not source.
+_SRC_DIRS = ("app", "lib", "public")
+_SRC_FILES = ("package.json", "package-lock.json", "next.config.js",
+              "tailwind.config.ts", "tsconfig.json", "postcss.config.js")
+
+
+def _source_fingerprint() -> str:
+    """Content hash of every frontend source file (~2 MB, a few milliseconds)."""
+    h = hashlib.sha256()
+    paths: list[Path] = [FRONTEND / f for f in _SRC_FILES]
+    for d in _SRC_DIRS:
+        root = FRONTEND / d
+        if root.is_dir():
+            paths.extend(p for p in root.rglob("*") if p.is_file())
+    for p in sorted(paths, key=lambda x: str(x)):
+        if not p.is_file():
+            continue
+        try:
+            h.update(str(p.relative_to(FRONTEND)).encode())
+            h.update(p.read_bytes())
+        except OSError:
+            continue
+    return h.hexdigest()
+
+
+def ui_stale() -> bool:
+    """
+    True when the compiled bundle no longer matches the source.
+
+    The bundle is gitignored, so `git pull` updates the source but never the
+    compiled output. Without this check the server would keep serving the old
+    interface and new pages would appear to be missing.
+    """
+    if not ui_present():
+        return True
+    try:
+        return STAMP.read_text(encoding="utf-8").strip() != _source_fingerprint()
+    except OSError:
+        return True  # no stamp: built by an older run.py or by Docker
+
+
 def build_frontend(force: bool = False) -> bool:
     """Compile the Next.js export into backend/app/static. Returns success."""
     if ui_present() and not force:
-        say("  prebuilt UI found (use --build to recompile)", G)
-        return True
+        if not ui_stale():
+            say("  UI bundle is up to date", G)
+            return True
+        if not have("npm"):
+            # Nothing we can do, but never fail silently: a stale bundle is
+            # exactly what makes a freshly pulled page look missing.
+            say("  UI bundle is OUT OF DATE and Node.js is not installed.", Y)
+            say("    Serving the previous build - newly added pages will 404.", Y)
+            say("    Install Node 18+ from https://nodejs.org, then: python run.py --build", Y)
+            return True
+        say("  source changed since the last build - recompiling", Y)
 
     npm = have("npm")
     if not npm:
@@ -181,6 +235,12 @@ def build_frontend(force: bool = False) -> bool:
     if STATIC.exists():
         shutil.rmtree(STATIC)
     shutil.copytree(out, STATIC)
+    # Record what this bundle was built from, so the next start can tell
+    # whether a pull has invalidated it.
+    try:
+        STAMP.write_text(_source_fingerprint(), encoding="utf-8")
+    except OSError:
+        pass
     say(f"  UI compiled into {STATIC.relative_to(ROOT)}", G)
     return True
 
@@ -298,8 +358,13 @@ def diagnose() -> None:
         d = deps_installed(py)
         say(f"  {'PASS' if d else 'WARN'}  python deps {'installed' if d else 'missing'}",
             G if d else Y)
-    say(f"  {'PASS' if ui_present() else 'WARN'}  UI bundle "
-        f"{'present' if ui_present() else 'not built'}", G if ui_present() else Y)
+    if not ui_present():
+        say("  WARN  UI bundle not built", Y)
+    elif ui_stale():
+        say("  WARN  UI bundle is STALE - source changed since it was built", Y)
+        say("        run: python run.py --build", Y)
+    else:
+        say("  PASS  UI bundle up to date", G)
 
     db = ROOT / "storage" / "atlas.db"
     say(f"  {'PASS' if db.exists() else '....'}  database "
