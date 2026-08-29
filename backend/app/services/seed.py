@@ -15,7 +15,7 @@ from app.services.corrosion_lessons import corrosion_lessons
 from app.domain.enums import (AppFramework, ComputeTarget, DeploymentStatus,
                               LessonBlockType, Role)
 from app.domain.models import (Assignment, Deployment, Lesson, LessonBlock, Notebook,
-                               Topic, User)
+                               Topic, User, utcnow)
 from app.services import notebook_factory as nf
 
 USERS = [
@@ -204,6 +204,11 @@ def _seed_demo_deployment(session: Session) -> None:
 
 def seed(session: Session) -> None:
     if session.exec(select(User)).first():
+        # Already seeded. Users, lessons and progress are the operator's data
+        # now and must not be touched - but a notebook that ships with the
+        # platform is code, not content, and an existing install would
+        # otherwise keep serving whatever shipped the day it was created.
+        refresh_notebooks(session)
         return
 
     for email, name, role, password, cohort in USERS:
@@ -252,6 +257,44 @@ def seed(session: Session) -> None:
 
     _seed_demo_deployment(session)
     _seed_demo_assignments(session)
+
+
+def refresh_notebooks(session: Session) -> int:
+    """Bring shipped notebooks up to date on an install that already has data.
+
+    Notebooks are generated from `notebook_factory`, so they are part of the
+    build rather than user content: an install created before a lesson was
+    rewritten would otherwise serve the old cells forever. That is exactly how
+    a playground ends up showing 13 cells when the current material has 24.
+
+    Only regenerates a notebook whose stored content differs from what the
+    factory produces now, and only for notebooks that still carry their seeded
+    slug - anything an author created or renamed through the CMS is left alone.
+    Progress, runs and assignments are untouched either way.
+    """
+    by_slug = {spec["nb"][0]: spec for spec in TOPICS}
+    changed = 0
+
+    for notebook in session.exec(select(Notebook)).all():
+        spec = by_slug.get(notebook.slug)
+        if not spec:
+            continue                      # author-created; not ours to rewrite
+        slug, title, target, gpu, builder = spec["nb"]
+        fresh = json.dumps(builder(), ensure_ascii=False)
+        if notebook.content_json == fresh:
+            continue                      # already current
+
+        notebook.content_json = fresh
+        notebook.title = title
+        notebook.default_target = target
+        notebook.requires_gpu = gpu
+        notebook.updated_at = utcnow()
+        session.add(notebook)
+        changed += 1
+
+    if changed:
+        session.commit()
+    return changed
 
 
 def _seed_demo_assignments(session: Session) -> None:

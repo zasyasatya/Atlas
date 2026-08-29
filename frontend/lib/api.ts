@@ -74,6 +74,18 @@ function writeStore(key: string, value: string): boolean {
   try { backing().setItem(key, value); return true; } catch { return false; }
 }
 
+/**
+ * Small UI preferences (sidebar collapsed, and so on).
+ *
+ * Uses the same tiered storage as the session, so a browser that blocks
+ * localStorage degrades to a per-tab or in-memory preference instead of
+ * throwing. A preference is never important enough to break a page over.
+ */
+export const prefs = {
+  get: (key: string): string | null => readStore(`atlas.pref.${key}`),
+  set: (key: string, value: string): void => { writeStore(`atlas.pref.${key}`, value); },
+};
+
 export const auth = {
   token: () => readStore(TOKEN_KEY),
   user: (): User | null => {

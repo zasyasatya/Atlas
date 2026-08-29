@@ -14,8 +14,10 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -188,10 +190,30 @@ def _deploy_local(deployment: Deployment, root: Path, port: int, logs: list[str]
                            capture_output=True, timeout=180)
         req = root / "requirements.txt"
         logs.append("[env] installing requirements (this can take a minute)")
-        proc = subprocess.run([str(py), "-m", "pip", "install", "-q", "-r", str(req)],
-                              capture_output=True, text=True, timeout=900)
+
+        # pip unpacks wheels through TMPDIR, which on most container images is a
+        # small tmpfs. A CV app pulling torch needs ~2 GB of scratch and dies with
+        # "No space left on device" long before the disk is full, so give pip a
+        # build directory next to the bundle where the real space is. Cleaned up
+        # afterwards so a deployment does not keep the scratch around.
+        scratch = root / ".pip-tmp"
+        scratch.mkdir(exist_ok=True)
+        pip_env = dict(os.environ, TMPDIR=str(scratch),
+                       PIP_CACHE_DIR=str(root / ".pip-cache"),
+                       PIP_DISABLE_PIP_VERSION_CHECK="1")
+        try:
+            proc = subprocess.run([str(py), "-m", "pip", "install", "-q", "-r", str(req)],
+                                  capture_output=True, text=True, timeout=1800,
+                                  env=pip_env)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+
         if proc.returncode != 0:
-            logs.append(f"[env] pip failed: {proc.stderr[-1500:]}")
+            tail = (proc.stderr or proc.stdout or "").strip()[-1500:]
+            if "No space left on device" in tail:
+                tail += ("\n[hint] the build ran out of scratch space. Free disk under "
+                         "storage/deployments, or trim requirements.txt.")
+            logs.append(f"[env] pip failed: {tail}")
             deployment.status = DeploymentStatus.FAILED
             return deployment
         logs.append("[env] dependencies ready")
@@ -209,14 +231,50 @@ def _deploy_local(deployment: Deployment, root: Path, port: int, logs: list[str]
     else:
         cmd = [str(py), deployment.entrypoint]
 
+    if not _wait_for_port(port):
+        logs.append(f"[run] port {port} is still held by an older process")
+        deployment.status = DeploymentStatus.FAILED
+        return deployment
+
     log_file = root / "runtime.log"
     handle = log_file.open("wb")
     proc = subprocess.Popen(cmd, cwd=str(root), stdout=handle, stderr=subprocess.STDOUT,
                             env=env, start_new_session=True)
+
+    # Don't claim RUNNING until the app is actually serving. A Streamlit that
+    # dies on a bad import or a taken port would otherwise be published to the
+    # portal as a working submission.
+    deadline = time.monotonic() + 90
+    serving = False
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            break
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                serving = True
+                break
+        time.sleep(0.5)
+
+    if not serving:
+        tail = ""
+        try:
+            tail = log_file.read_text(errors="replace")[-800:].strip()
+        except OSError:
+            pass
+        logs.append(f"[run] app did not start listening on {port}"
+                    + (f": {tail}" if tail else ""))
+        deployment.status = DeploymentStatus.FAILED
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        return deployment
+
     deployment.process_pid = proc.pid
     deployment.status = DeploymentStatus.RUNNING
     deployment.url = _public_url(port, deployment.slug)
-    logs.append(f"[run] pid={proc.pid} -> {deployment.url}")
+    logs.append(f"[run] pid={proc.pid} serving on {port} -> {deployment.url}")
     return deployment
 
 
@@ -252,10 +310,45 @@ def _deploy_coolify(deployment: Deployment, logs: list[str], dockerfile: str) ->
 
 
 def stop(deployment: Deployment) -> None:
-    if not deployment.process_pid:
-        return
-    try:
-        os.killpg(os.getpgid(deployment.process_pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
+    """Stop the app and wait for it to actually be gone.
+
+    Signalling and returning immediately is not enough: a redeploy starts the
+    replacement within milliseconds, the old Streamlit still holds the port,
+    and the new one exits with "Port 8600 is not available" while the database
+    happily records RUNNING. So SIGTERM, wait, then SIGKILL, then confirm the
+    port is free before anyone tries to bind it again.
+    """
+    pid = deployment.process_pid
     deployment.process_pid = None
+    if not pid:
+        return
+
+    try:
+        pgid = os.getpgid(pid)
+    except (ProcessLookupError, PermissionError):
+        return
+
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError):
+            return
+        # Give it a moment to unwind; SIGKILL only if SIGTERM was ignored.
+        for _ in range(30 if sig is signal.SIGTERM else 20):
+            time.sleep(0.1)
+            try:
+                os.killpg(pgid, 0)
+            except (ProcessLookupError, PermissionError):
+                return
+
+
+def _wait_for_port(port: int, timeout: float = 8.0) -> bool:
+    """True once nothing is listening on `port`."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.4)
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return True
+        time.sleep(0.3)
+    return False

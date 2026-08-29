@@ -176,6 +176,16 @@ Interns and instructors on a deployed instance see only what they need: how to s
 in, learn, run notebooks, upload data and ship an app. Instructions for installing
 and operating the platform stay on the operator's machine.
 
+### Notebooks refresh themselves
+
+Playground notebooks are generated from `notebook_factory`, so they are part of
+the build rather than user content. An install created before a lesson was
+rewritten used to keep serving the notebook it was seeded with - which is how a
+playground ends up showing 13 cells when the current material has 24. On every
+startup ATLAS now regenerates any shipped notebook whose content has drifted,
+matched by its seeded slug. Notebooks an author created or renamed through the
+CMS are left alone, and progress, runs and assignments are never touched.
+
 ### Topic assignments
 
 On a production instance an intern sees only the topics a supervisor has ticked for
@@ -219,6 +229,7 @@ cohort, or change every password.
 | `tests/google_auth.py` | 31 checks on Google id_token verification: forged signatures, `alg=none`, algorithm confusion, wrong audience, expiry, unverified email, nonce replay, PKCE. No network needed. |
 | `tests/google_flow.py` | 23 checks driving a full sign-in against a stand-in Google: authorize, code exchange, callback, session, and replay rejection. |
 | `tests/assignments.py` | 34 checks that assignment gating holds on every topic-scoped route, and that the pipeline library serves files without path traversal. Needs a dev **and** a prod instance. |
+| `tests/course_e2e.py` | 25 checks driving one whole internship course through the API: lessons, notebook contents, checkpoint upload, bundle, rubric, deploy, portal, and an HTTP fetch of the running app. Needs a dev instance and a trained checkpoint. |
 | `tests/capture_manual.py` | Recaptures every manual screenshot from the running app. |
 
 ### Topic 6 reference implementation

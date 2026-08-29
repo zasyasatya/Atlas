@@ -2,11 +2,21 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
-import { auth, storageIsEphemeral, User } from '@/lib/api';
+import { auth, prefs, storageIsEphemeral, User } from '@/lib/api';
 import {
-  IcApps, IcBook, IcDatabase, IcFlask, IcGrid, IcLogout, IcMenu, IcRocket,
-  IcCode, IcSettings, IcTrophy, IcX,
+  IcApps, IcArrowLeft, IcArrowRight, IcBook, IcDatabase, IcFlask, IcGrid,
+  IcLogout, IcMenu, IcRocket, IcCode, IcSettings, IcTrophy, IcX,
 } from './Icons';
+
+/**
+ * Routes that need the horizontal room more than they need the nav.
+ *
+ * A notebook is a fixed-width document with code in it; 248px of sidebar is
+ * the difference between reading a line of code and wrapping it. These pages
+ * collapse the sidebar to an icon rail on arrival, once, and a manual toggle
+ * afterwards always wins.
+ */
+const WIDE_ROUTES = ['/playground', '/pipelines'];
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: IcGrid },
@@ -30,6 +40,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
   const [ready, setReady] = React.useState(false);
 
+  // Collapsed = icon rail on desktop. Read the saved preference synchronously
+  // on first render so the sidebar never renders wide and then snaps shut.
+  const [collapsed, setCollapsed] = React.useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const saved = prefs.get('sidebarCollapsed');
+    if (saved !== null) return saved === '1';
+    return WIDE_ROUTES.some((r) => window.location.pathname.startsWith(r));
+  });
+  // Auto-collapse fires once per visit to a wide route, never fighting a user
+  // who has just expanded the sidebar on that same page.
+  const autoApplied = React.useRef<string | null>(null);
+
   React.useEffect(() => {
     // Require BOTH: a stored user with no token yields 401s on every request,
     // which would bounce back here anyway — treat it as logged out up front.
@@ -50,6 +72,25 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => { setOpen(false); }, [pathname]);
 
+  // Entering a notebook-style page reclaims the width automatically; leaving it
+  // gives the labels back. Both only happen on an actual route change, so a
+  // manual toggle survives for as long as you stay on the page.
+  React.useEffect(() => {
+    const wide = WIDE_ROUTES.some((r) => pathname.startsWith(r));
+    if (autoApplied.current === pathname) return;
+    autoApplied.current = pathname;
+    setCollapsed(wide);
+    prefs.set('sidebarCollapsed', wide ? '1' : '0');
+  }, [pathname]);
+
+  const toggleCollapsed = React.useCallback(() => {
+    setCollapsed((c) => {
+      const next = !c;
+      prefs.set('sidebarCollapsed', next ? '1' : '0');
+      return next;
+    });
+  }, []);
+
   if (!ready) {
     return (
       <div className="min-h-screen grid place-items-center bg-paper">
@@ -60,14 +101,27 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   const initials = (user?.full_name || 'A').split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase();
 
+  // The icon rail only exists on desktop; the mobile drawer is always full width.
+  const rail = collapsed && !open;
+
   const NavLink = ({ href, label, icon: Icon }: any) => {
     const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
+    // Collapsed on desktop still shows labels in the mobile drawer, where the
+    // panel is full width and there is nothing to save.
+    const rail = collapsed && !open;
     return (
-      <Link href={href}
-        className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-semibold transition-all duration-150 ${
+      <Link href={href} title={rail ? label : undefined}
+        aria-label={label}
+        className={`group relative flex items-center rounded-xl text-[13.5px] font-semibold transition-all duration-150 ${
+          rail ? 'lg:justify-center lg:px-0 gap-3 px-3 py-2' : 'gap-3 px-3 py-2'} ${
           active ? 'bg-sage-600 text-white shadow-soft' : 'text-ink-soft hover:bg-sage-50 hover:text-sage-800'}`}>
-        <Icon size={17} className={active ? 'text-white' : 'text-ink-faint group-hover:text-sage-600'} />
-        <span>{label}</span>
+        <Icon size={17} className={`shrink-0 ${active ? 'text-white' : 'text-ink-faint group-hover:text-sage-600'}`} />
+        <span className={rail ? 'lg:hidden' : ''}>{label}</span>
+        {rail && (
+          <span className="pointer-events-none absolute left-full ml-2 hidden lg:block whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11.5px] font-semibold text-white opacity-0 shadow-soft transition-opacity duration-150 group-hover:opacity-100 z-50">
+            {label}
+          </span>
+        )}
       </Link>
     );
   };
@@ -87,42 +141,61 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="flex w-full">
         {/* sidebar */}
-        <aside className={`fixed lg:sticky top-0 z-40 h-screen w-[248px] shrink-0 bg-white border-r border-line flex flex-col transition-transform duration-200 ${
+        <aside className={`fixed lg:sticky top-0 z-40 h-screen shrink-0 bg-white border-r border-line flex flex-col transition-[transform,width] duration-200 w-[248px] ${
+          rail ? 'lg:w-[68px]' : 'lg:w-[248px]'} ${
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-          <div className="px-5 pt-6 pb-5">
-            <Link href="/dashboard" className="flex items-center gap-2.5">
+          <div className={`pt-6 pb-5 ${rail ? 'px-5 lg:px-0' : 'px-5'}`}>
+            <Link href="/dashboard"
+              className={`flex items-center gap-2.5 ${rail ? 'lg:justify-center' : ''}`}>
               <Logo />
-              <div>
+              <div className={rail ? 'lg:hidden' : ''}>
                 <div className="font-extrabold text-[15px] tracking-[-0.02em] leading-none">ATLAS</div>
                 <div className="text-[10px] text-ink-faint mt-1 tracking-wide">INTERNSHIP OS</div>
               </div>
             </Link>
           </div>
 
-          <div className="px-5 pb-4">
-            <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-paper-deep">
+          <div className={`pb-4 ${rail ? 'px-5 lg:px-3' : 'px-5'}`}>
+            <div className={`flex items-center gap-2.5 rounded-xl bg-paper-deep p-2.5 ${
+              rail ? 'lg:justify-center lg:p-1.5 lg:bg-transparent' : ''}`}
+              title={rail ? `${user?.full_name} (${user?.role})` : undefined}>
               <div className="w-8 h-8 rounded-lg bg-sage-600 text-white grid place-items-center text-[12px] font-bold shrink-0">
                 {initials}
               </div>
-              <div className="min-w-0">
+              <div className={`min-w-0 ${rail ? 'lg:hidden' : ''}`}>
                 <div className="text-[13px] font-bold text-ink truncate leading-tight">{user?.full_name}</div>
                 <div className="text-[11px] text-ink-faint capitalize">{user?.role}</div>
               </div>
             </div>
           </div>
 
-          <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
+          <nav className={`flex-1 space-y-0.5 overflow-y-auto overflow-x-visible ${rail ? 'px-3 lg:px-2.5' : 'px-3'}`}>
             {NAV.map((n) => <NavLink key={n.href} {...n} />)}
             <div className="pt-4 mt-4 border-t border-line space-y-0.5">
               {NAV_BOTTOM.map((n) => <NavLink key={n.href} {...n} />)}
             </div>
           </nav>
 
-          <div className="p-3 border-t border-line">
+          {/* Desktop-only: the rail toggle. Mobile uses the drawer button. */}
+          <div className="hidden lg:block px-3 pb-1">
+            <button onClick={toggleCollapsed}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
+              className={`w-full flex items-center gap-3 py-2 rounded-xl text-[12.5px] font-semibold text-ink-faint hover:bg-paper-deep hover:text-ink-soft transition-colors ${
+                rail ? 'justify-center px-0' : 'px-3'}`}>
+              {collapsed ? <IcArrowRight size={16} /> : <IcArrowLeft size={16} />}
+              <span className={rail ? 'hidden' : ''}>Collapse</span>
+            </button>
+          </div>
+
+          <div className={`border-t border-line ${rail ? 'p-3 lg:px-2.5' : 'p-3'}`}>
             <button onClick={() => { auth.clear(); router.push('/login'); }}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-semibold text-ink-muted hover:bg-paper-deep hover:text-signal-bad transition-colors">
-              <IcLogout size={17} />
-              Log out
+              title={rail ? 'Log out' : undefined}
+              className={`w-full flex items-center gap-3 py-2 rounded-xl text-[13.5px] font-semibold text-ink-muted hover:bg-paper-deep hover:text-signal-bad transition-colors ${
+                rail ? 'lg:justify-center lg:px-0 px-3' : 'px-3'}`}>
+              <IcLogout size={17} className="shrink-0" />
+              <span className={rail ? 'lg:hidden' : ''}>Log out</span>
             </button>
           </div>
         </aside>

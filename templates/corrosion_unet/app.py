@@ -45,8 +45,47 @@ def _arg(flag: str, fallback: str) -> str:
     return fallback
 
 
-CHECKPOINT = _arg("--checkpoint", DEFAULT_CHECKPOINT)
+def _discover_checkpoint(preferred: str) -> str:
+    """Find the trained weights wherever the bundle happens to put them.
+
+    The app is deployed by uploading a zip, and people lay that zip out
+    differently: `model/best.pt`, `runs/<name>/best.pt`, or a bare `best.pt`
+    beside app.py. Hard-coding one path means a perfectly good deployment shows
+    "No checkpoint found" and looks broken, which is the single most common way
+    an otherwise finished submission fails review.
+
+    The explicit flag or env var always wins; this only runs when that path is
+    missing. Newest wins, since a re-trained model is the interesting one.
+    """
+    if Path(preferred).exists():
+        return preferred
+
+    here = Path(__file__).parent
+    candidates: list[Path] = []
+    for pattern in ("*.pt", "model/*.pt", "models/*.pt", "runs/*/*.pt",
+                    "checkpoints/*.pt", "weights/*.pt", "artifacts/*.pt"):
+        candidates.extend(here.glob(pattern))
+
+    # Prefer a file literally called best.pt, then fall back to newest.
+    best = [c for c in candidates if c.name == "best.pt"]
+    pool = best or candidates
+    if not pool:
+        return preferred
+    winner = max(pool, key=lambda p: p.stat().st_mtime)
+    try:
+        return str(winner.relative_to(here))
+    except ValueError:
+        return str(winner)
+
+
+CHECKPOINT = _discover_checkpoint(_arg("--checkpoint", DEFAULT_CHECKPOINT))
 RUN_DIR = _arg("--run-dir", DEFAULT_RUN_DIR)
+# A checkpoint found outside the default run dir carries its own siblings
+# (history.csv, report.json), so point the docs tab at the same folder.
+if CHECKPOINT != DEFAULT_CHECKPOINT and RUN_DIR == DEFAULT_RUN_DIR:
+    _found_dir = str(Path(CHECKPOINT).parent)
+    if _found_dir not in ("", "."):
+        RUN_DIR = _found_dir
 
 
 @st.cache_resource(show_spinner="Loading model...")
