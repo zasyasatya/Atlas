@@ -198,8 +198,21 @@ cohort, or change every password.
 |---|---|
 | `/manual` (in the running app) | Illustrated user manual. 14 chapters in development, 11 in production. No sign-in needed. |
 | `tests/e2e.py` | 22 browser checks covering auth, curriculum, compute, rubric and the manual. |
-| `tests/prod_mode.py` | 25 checks that production really hides the operator content. Needs a dev **and** a prod instance. |
+| `tests/prod_mode.py` | 26 checks that production really hides the operator content. Needs a dev **and** a prod instance. |
+| `tests/lesson_contract.py` | 13 checks that every seeded lesson block matches what `BlockRenderer.tsx` reads. Catches blocks that would render blank. |
 | `tests/capture_manual.py` | Recaptures every manual screenshot from the running app. |
+
+### Topic 6 reference implementation
+
+`templates/corrosion_unet/` is a complete, working U-Net for the 15-class
+corrosion dataset — library, CLI, Streamlit app and a Dockerfile. It doubles as
+the worked example the Stage 6 lesson points at.
+
+| Command | What |
+|---|---|
+| `./.venv-app/bin/python tests/test_units.py` | 81 unit checks over metrics, model, losses, data discovery and `app.py` source. |
+| `./.venv-app/bin/python tests/test_e2e.py` | 54 checks: generates data, really trains, reloads the checkpoint, predicts, then boots the Streamlit app and hits it over HTTP. `--fast` skips the quality bars. |
+| `./.venv-app/bin/python tests/test_notebook.py` | 16 checks that execute the platform's playground notebook cell by cell and confirm its checkpoint loads in the deployment app. |
 
 - `docs/PRD.md` — full product requirements, design rationale and verification log
 - `docs/SYSTEM_DESIGN.md` — architecture, data model, sequence flows

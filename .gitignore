@@ -33,3 +33,10 @@ storage/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# corrosion template: local envs and training output
+templates/corrosion_unet/.venv-app/
+templates/corrosion_unet/runs/
+templates/corrosion_unet/data/
+templates/corrosion_unet/.nbtest/
+templates/corrosion_unet/.probe/

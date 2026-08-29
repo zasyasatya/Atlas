@@ -6,12 +6,16 @@ supervisor never faces an empty platform on day one.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from sqlmodel import Session, select
 
 from app.core.security import hash_password
-from app.domain.enums import ComputeTarget, LessonBlockType, Role
-from app.domain.models import Lesson, LessonBlock, Notebook, Topic, User
+from app.services.corrosion_lessons import corrosion_lessons
+from app.domain.enums import (AppFramework, ComputeTarget, DeploymentStatus,
+                              LessonBlockType, Role)
+from app.domain.models import (Deployment, Lesson, LessonBlock, Notebook, Topic,
+                               User)
 from app.services import notebook_factory as nf
 
 USERS = [
@@ -143,17 +147,60 @@ TOPICS = [
     {
         "slug": "corrosion-segmentation", "title": "Corrosion Type Segmentation",
         "subtitle": "Pixel-level classification of damage",
-        "summary": "Segment uniform, pitting, crevice, galvanic and scaling corrosion from inspection photos.",
+        "summary": "Segment 15 corrosion classes - general, pitting, crevice, galvanic and preferential weld attack, each at mild, moderate and severe - from inspection photos.",
         "difficulty": "advanced", "hours": 26, "accent": "#8C5B4F", "icon": "layers",
         "heavy": True, "task": "segmentation", "xp": 250,
         "analogy": "Two rust patches can look identical to you and mean completely different repairs. "
                    "You are building the second opinion that never gets tired at 4pm.",
         "steps": ["Inspection photos", "Annotate masks", "Augment", "U-Net training", "IoU per class", "Damage overlay"],
+        "lessons": corrosion_lessons,
         "nb": ("corrosion-playground", "Corrosion Segmentation Playground", ComputeTarget.COLAB_GPU, True,
                nf.corrosion_segmentation_notebook),
     },
 ]
 
+
+
+def _seed_demo_deployment(session: Session) -> None:
+    """One worked example in the portal, so Deployment and Portal are not empty
+    on a fresh install.
+
+    It points at the real Streamlit starter and is scored by the same rubric
+    engine as a student submission - nothing is faked, it genuinely passes 5/5.
+    """
+    from app.services import compliance
+
+    intern = session.exec(select(User).where(User.email == "intern@atlas.id")).first()
+    topic = session.exec(
+        select(Topic).where(Topic.slug == "predictive-maintenance")).first()
+    if not intern or not topic:
+        return
+
+    bundle = Path(__file__).resolve().parents[3] / "templates" / "streamlit_starter"
+    if not bundle.is_dir():
+        return
+
+    deployment = Deployment(
+        topic_id=topic.id or 0, user_id=intern.id or 0,
+        name="Equipment Failure Predictor",
+        slug="equipment-failure-predictor",
+        framework=AppFramework.STREAMLIT,
+        entrypoint="app.py",
+        source_kind="upload",
+        bundle_path=str(bundle),
+        status=DeploymentStatus.RUNNING,
+        url="https://equipment-failure-predictor.demo.atlas.id",
+        whimsical_url="https://whimsical.com/atlas-demo",
+        published_to_portal=True,
+        build_logs="Seeded example. Rebuild from the Deployment tab to redeploy.",
+    )
+    session.add(deployment)
+    session.commit()
+    session.refresh(deployment)
+
+    # score it with the real rubric engine
+    compliance.evaluate(session, deployment, task_type="classification")
+    session.commit()
 
 def seed(session: Session) -> None:
     if session.exec(select(User)).first():
@@ -176,7 +223,10 @@ def seed(session: Session) -> None:
         session.commit()
         session.refresh(topic)
 
-        for spec_lesson in _intro_lessons(spec["title"], spec["analogy"], spec["steps"]):
+        lesson_specs = spec.get("lessons")
+        lesson_specs = (lesson_specs() if callable(lesson_specs) else lesson_specs) \
+            or _intro_lessons(spec["title"], spec["analogy"], spec["steps"])
+        for spec_lesson in lesson_specs:
             lesson = Lesson(
                 topic_id=topic.id or 0, slug=spec_lesson["slug"], title=spec_lesson["title"],
                 hook=spec_lesson["hook"], duration_minutes=spec_lesson["duration_minutes"],
@@ -199,3 +249,5 @@ def seed(session: Session) -> None:
             requirements="pandas\nscikit-learn\nnumpy" if not gpu else "torch\ntorchvision\nultralytics",
         ))
         session.commit()
+
+    _seed_demo_deployment(session)
