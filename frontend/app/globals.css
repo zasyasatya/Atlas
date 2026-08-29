@@ -16,8 +16,13 @@
 }
 
 html, body { height: 100%; }
-html { overflow-x: hidden; }
-body { overflow-x: hidden; max-width: 100vw; }
+
+/* Horizontal overflow is clipped on <html> only. Setting overflow-x on <body>
+   as well makes the browser compute overflow-y:auto there, which turns <body>
+   into the scroll container and silently disables position:sticky for every
+   descendant. Keeping body's overflow visible preserves both the mobile
+   no-horizontal-scroll fix and sticky sidebars. */
+html { overflow-x: hidden; max-width: 100vw; }
 
 body {
   background: #F6F8F6;

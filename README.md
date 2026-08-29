@@ -18,6 +18,10 @@ python run.py
 
 Then open **http://localhost:8000**.
 
+New to the platform? The built-in manual at **http://localhost:8000/manual** is a
+14-chapter walkthrough with screenshots of the real interface. It is linked from
+the sign-in page and needs no account.
+
 On Windows you can double-click `start.bat`; on macOS/Linux, `./start.sh`.
 
 **Requirements:** Python 3.10+ is mandatory. Node.js 18+ is optional — it is
@@ -155,6 +159,12 @@ Interactive docs at `/api/docs`.
 ---
 
 ## Docs
+
+| Where | What |
+|---|---|
+| `/manual` (in the running app) | Illustrated user manual: 14 chapters, 16 real screenshots. No sign-in needed. |
+| `tests/e2e.py` | 22 browser checks covering auth, curriculum, compute, rubric and the manual. |
+| `tests/capture_manual.py` | Recaptures every manual screenshot from the running app. |
 
 - `docs/PRD.md` — full product requirements, design rationale and verification log
 - `docs/SYSTEM_DESIGN.md` — architecture, data model, sequence flows

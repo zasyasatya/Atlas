@@ -1,10 +1,11 @@
 'use client';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React from 'react';
 import { api, auth, storageIsEphemeral } from '@/lib/api';
 import { Button, Field, Input, useToast } from '../components/UI';
 import { Logo } from '../components/Shell';
-import { IcArrowRight, IcLock } from '../components/Icons';
+import { IcArrowRight, IcBook, IcLock } from '../components/Icons';
 
 const DEMO = [
   { email: 'supervisor@atlas.id', password: 'supervisor123', role: 'Supervisor', note: 'authors content, reviews apps' },
@@ -109,6 +110,25 @@ export default function Login() {
             icon={<GoogleMark />}>
             Continue with Google
           </Button>
+
+          <Link
+            href="/manual"
+            className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-line
+                       bg-paper-card px-3.5 py-2.5 transition-colors hover:border-sage-300 hover:bg-sage-50 group"
+          >
+            <span className="flex items-center gap-2.5">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-sage-100 text-sage-700">
+                <IcBook size={14} />
+              </span>
+              <span>
+                <span className="block text-[13px] font-bold text-ink">Read the manual</span>
+                <span className="block text-[11.5px] text-ink-muted">
+                  Full guide with screenshots — no sign-in needed
+                </span>
+              </span>
+            </span>
+            <IcArrowRight size={15} className="text-ink-faint group-hover:text-sage-600 shrink-0" />
+          </Link>
 
           <div className="mt-8 pt-6 border-t border-line">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-faint mb-3">
