@@ -46,7 +46,10 @@ def _run_out(session, run: Run) -> RunOut:
 @router.get("/notebooks", response_model=list[NotebookOut])
 def list_notebooks(session: SessionDep, user: CurrentUser, topic_id: int | None = None) -> list[NotebookOut]:
     from sqlmodel import select
-    stmt = select(Notebook)
+    # Ordered by title: a topic whose playground is a numbered sequence ("1.
+    # Preprocessing", "2. Training", ...) must list in that order, not in
+    # whatever order the rows happen to have been inserted.
+    stmt = select(Notebook).order_by(Notebook.topic_id, Notebook.title)
     if topic_id is not None:
         stmt = stmt.where(Notebook.topic_id == topic_id)
     rows = list(session.exec(stmt))

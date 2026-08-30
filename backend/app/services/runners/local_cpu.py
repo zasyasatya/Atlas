@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -41,6 +42,13 @@ class LocalCpuRunner:
             run, notebook = session.get(Run, run_id), session.get(Notebook, notebook_id)
             if not run or not notebook:
                 return
+            # A topic can be a pipeline: stage 1 writes a manifest, stage 2 a
+            # checkpoint, stage 3 a report. Each run gets its own directory, so
+            # without a shared workspace stage 3 would open on an empty folder
+            # and tell the intern to go and train a model they already trained.
+            workspace = (settings.storage_dir / "runs" / "workspaces"
+                         / f"topic{run.topic_id}_user{run.user_id}")
+            workspace.mkdir(parents=True, exist_ok=True)
             run.status = RunStatus.RUNNING
             run.started_at = datetime.now(timezone.utc)
             session.add(run)
@@ -64,6 +72,7 @@ class LocalCpuRunner:
                 [sys.executable, "-m", "app.services.runners._exec_notebook",
                  str(nb_path), str(out_path)],
                 cwd=str(BACKEND_ROOT), capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+                env=dict(os.environ, ATLAS_WORK=str(workspace)),
             )
             if out_path.exists():
                 payload = json.loads(out_path.read_text())

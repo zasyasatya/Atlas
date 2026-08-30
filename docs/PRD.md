@@ -94,7 +94,19 @@ Each topic carries at least one notebook stored as nbformat v4 JSON in the datab
 read it inline (rendered markdown, tables and syntax-highlighted cells), download the `.ipynb`, or
 execute it on a chosen compute target.
 
-Six notebooks ship pre-authored, matching the six topics.
+Ten notebooks ship pre-authored. Five topics carry one each. Corrosion segmentation carries five —
+preprocessing/EDA, training, evaluation, inference, deployment — because a single notebook that does
+everything cannot be re-run: an intern who wants to look at one prediction would otherwise sit
+through training again, and a session that dies during evaluation would take the trained model with
+it. The stages hand work to each other through one folder (a manifest, then checkpoints, then a
+report), which is also what makes the pipeline restartable at any point.
+
+**Surviving a borrowed runtime.** Colab reclaims idle runtimes and hard-stops at twelve hours, so
+the training notebook is written around losing the machine rather than hoping it does not happen:
+the work folder is Google Drive, a checkpoint carrying optimiser and scheduler state is written
+every epoch, saves are atomic so an interrupted write cannot corrupt the last good checkpoint, and
+re-running the training cell resumes from the epoch it reached. A configurable time budget stops the
+loop cleanly before Colab does. The recovery procedure an intern is taught is: reconnect, Run all.
 
 ### 4.3 Compute bridge (G3) — the load-bearing feature
 

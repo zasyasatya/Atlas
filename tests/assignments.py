@@ -109,13 +109,14 @@ def main() -> int:
     # notebooks follow their topic
     status, nbs = call(PROD, "/api/notebooks", prod_intern)
     nb_topics = {n["topic_id"] for n in nbs} if isinstance(nbs, list) else set()
-    check("prod: notebook list filtered", status == 200 and len(nbs) == 3,
+    # Three assigned topics, but corrosion alone carries five notebooks.
+    check("prod: notebook list filtered", status == 200 and len(nbs) == 7,
           f"{status} {len(nbs) if isinstance(nbs, list) else nbs}")
 
     # find a notebook the intern must not have
     status, all_nbs = call(PROD, "/api/notebooks", prod_sup)
     forbidden = [n for n in all_nbs if n["topic_id"] not in nb_topics]
-    check("prod: supervisor sees every notebook", len(all_nbs) == 6, str(len(all_nbs)))
+    check("prod: supervisor sees every notebook", len(all_nbs) == 10, str(len(all_nbs)))
 
     if forbidden:
         nb_id = forbidden[0]["id"]
@@ -124,11 +125,16 @@ def main() -> int:
         status, _ = call(PROD, f"/api/notebooks/{nb_id}/export.ipynb", prod_intern)
         check("prod: unassigned notebook export 404s", status == 404, str(status))
 
-    # the assigned one still works, cells and all
-    status, nb = call(PROD, "/api/notebooks/6", prod_intern)
-    cells = nb.get("content", {}).get("cells", []) if isinstance(nb, dict) else []
-    check("prod: assigned notebook 6 opens with cells",
-          status == 200 and len(cells) == 24, f"{status} {len(cells)} cells")
+    # the assigned ones still work, cells and all
+    allowed = [n for n in all_nbs if n["topic_id"] in nb_topics]
+    opened = 0
+    for notebook in allowed:
+        status, nb = call(PROD, f"/api/notebooks/{notebook['id']}", prod_intern)
+        cells = nb.get("content", {}).get("cells", []) if isinstance(nb, dict) else []
+        if status == 200 and len(cells) >= 6:
+            opened += 1
+    check("prod: every assigned notebook opens with cells",
+          opened == len(allowed), f"{opened}/{len(allowed)}")
 
     # supervisors are never restricted
     status, sup_topics = call(PROD, "/api/topics", prod_sup)

@@ -40,3 +40,6 @@ templates/corrosion_unet/runs/
 templates/corrosion_unet/data/
 templates/corrosion_unet/.nbtest/
 templates/corrosion_unet/.probe/
+dataset
+templates/corrosion_unet/.kittest/
+storage/pipeline/

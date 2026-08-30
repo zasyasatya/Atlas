@@ -637,10 +637,34 @@ export default function Manual() {
           {/* ============ 06 PLAYGROUND ============ */}
           <Section
             id="playground" num={n('playground')} title="Playground & GPUs"
-            lead="Every topic has its own notebook. Heavy vision training is routed to a borrowed GPU automatically — this server has none, and needs none."
+            lead="Every topic has its own notebook — corrosion segmentation has five, one per stage. Heavy vision training is routed to a borrowed GPU automatically: this server has none, and needs none."
           >
             <Figure num={`Fig. ${n('playground')}.1`} src="/manual/08-playground.jpg" onZoom={fig}
               caption="The playground. Topic tabs across the top, the notebook preview in the middle, and the launch panel on the right." />
+
+            <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">A topic can be a pipeline</h3>
+            <p>
+              Corrosion segmentation ships as five notebooks rather than one, listed left to right
+              above the preview. Run them in order; each writes into a work folder the next one
+              reads.
+            </p>
+            <Table
+              head={['Notebook', 'What it does', 'Runs on']}
+              rows={[
+                ['1. Preprocessing & EDA', 'Finds the dataset, reads what the mask values mean, measures the class imbalance.', 'Platform CPU'],
+                ['2. Training the U-Net', 'The real training run, checkpointed every epoch.', 'Colab / Kaggle GPU'],
+                ['3. Evaluation', 'Per-class IoU on the test split, plus the worst predictions.', 'GPU or CPU'],
+                ['4. Inference', 'Segments new photographs, one at a time or in bulk.', 'Platform CPU'],
+                ['5. Deployment', 'Builds the app bundle and checks it against the rubric.', 'Platform CPU'],
+              ]}
+            />
+            <Note kind="ok" title="A disconnect costs you nothing">
+              The training notebook keeps its checkpoints in Google Drive, not on the Colab
+              machine, and writes one every epoch with the optimiser state included. If the
+              runtime drops — idle timeout, closed lid, the 12-hour limit — reconnect and run the
+              cell again: it prints <em>resuming from epoch N</em> and carries on. It also stops
+              itself before Colab does, so you are never cut off mid-epoch.
+            </Note>
 
             <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">Choosing where it runs</h3>
             <Table

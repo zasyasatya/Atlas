@@ -563,14 +563,40 @@ def _lesson_deploy() -> dict:
         "five rubric rules.", 30, 50, 5,
         _blocks(
             (B.TEXT, {"body":
+                "**The playground is five notebooks, run in order**\n"
+                "Open the **Playground** tab on this topic and you get the whole pipeline, one "
+                "stage per notebook. Run them left to right; each hands the next one its "
+                "output through a shared work folder.\n"
+                "1. **Preprocessing & EDA** - find the dataset, read what the mask values mean, "
+                "measure the class imbalance, write the manifest.\n"
+                "2. **Training the U-Net** - the real training run, checkpointed every epoch.\n"
+                "3. **Evaluation** - per-class IoU on the held-out test split, confusion matrix, "
+                "and the worst predictions next to their ground truth.\n"
+                "4. **Inference** - segment new photographs, one at a time and in bulk.\n"
+                "5. **Deployment** - assemble the app bundle, self-check the rubric, ship it.\n"
+                "They run unchanged in three places: dispatched from ATLAS, opened in local "
+                "Jupyter, or opened straight in Colab. Attach the **CorroVision semantic "
+                "export** dataset to the run and the notebook downloads it for you."}),
+
+            (B.TEXT, {"body":
                 "**Getting a GPU**\n"
                 "Training this on a laptop CPU takes hours. You do not have a local GPU and you "
-                "do not need one - open the **Playground** tab, pick **Colab GPU** or "
+                "do not need one - in the **Playground**, pick **Colab GPU** or "
                 "**Kaggle GPU** as the run target, and press Run. ATLAS pushes the notebook to "
                 "that machine, and the injected `atlas` bridge streams logs, metrics and "
                 "artifacts back here while it trains.\n"
                 "This topic is flagged as heavy compute, so the platform will not let you "
                 "quietly run it on CPU and wonder why nothing ever finishes."}),
+
+            (B.CALLOUT, {"tone": "info", "title": "When Colab disconnects - and it will",
+                         "body": "Idle timeouts, a closed lid and the 12-hour ceiling all wipe "
+                                 "/content. The training notebook is built for that: every "
+                                 "checkpoint goes to Google Drive with the optimiser and "
+                                 "scheduler state, saves are atomic so a killed session cannot "
+                                 "leave a half-written file, and re-running the training cell "
+                                 "prints 'resuming from epoch N' instead of starting over. "
+                                 "TIME_BUDGET_MIN stops the loop cleanly before Colab does. "
+                                 "The recovery procedure is: reconnect, Run all, wait."}),
 
             (B.CODE, {"language": "python", "caption": "the notebook checks this for you", "code":
                 "import torch\n"
@@ -616,10 +642,10 @@ def _lesson_deploy() -> dict:
 
             (B.TEXT, {"body":
                 "**The five rubric rules**\n"
-                "The Streamlit reference app already satisfies all of them. Open it under "
-                "**Pipeline Library -> Corrosion U-Net** (file `app.py`), read it, or "
-                "download the folder as a zip. Point it at your checkpoint, check each "
-                "rule yourself, then deploy.\n"
+                "The app notebook 5 assembles already satisfies all of them, and checks itself "
+                "against them before you upload. Read it under **Pipeline Library -> Corrosion "
+                "app** (`app.py`), or the fuller reference under **Corrosion U-Net**. Check "
+                "each rule yourself, then deploy.\n"
                 "- **R1 Framework** - Streamlit or Gradio only. The template is Streamlit.\n"
                 "- **R2 Input** - single entry *and* bulk upload. The Analyse tab takes one "
                 "photo, or many files, or a ZIP.\n"
@@ -641,7 +667,9 @@ def _lesson_deploy() -> dict:
 
             (B.TEXT, {"body":
                 "**Then ship it**\n"
-                "Open the **Deployment** tab, attach the checkpoint, and press Deploy. The "
+                "Notebook 5 zips the bundle for you - app, checkpoint, evaluation report and a "
+                "few example photographs. Open the **Deployment** tab, upload that zip, and "
+                "press Deploy. The "
                 "platform builds the container, runs the rubric check, and publishes the app to "
                 "the **Portal** automatically once it reports healthy. Paste the resulting URL "
                 "into Whimsical and you are done."}),

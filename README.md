@@ -64,8 +64,10 @@ docker compose up --build     # http://localhost:8000
 architecture diagram, quiz, flashcards, code, image, video) in a visual editor with live preview.
 No repository access required. Content is JSON, not code.
 
-**Notebook playground** — Six pre-authored notebooks, one per topic, readable inline and runnable on
-three compute targets.
+**Notebook playground** — Ten pre-authored notebooks, readable inline and runnable on three compute
+targets. Five topics get one notebook each; corrosion segmentation gets the full pipeline as five —
+preprocessing/EDA, training, evaluation, inference and deployment — so nobody re-runs training to
+look at a prediction.
 
 **GPU without a GPU** — The platform host has no GPU. Heavy computer-vision topics (P&ID extraction,
 corrosion segmentation) are routed to Google Colab or Kaggle. An injected stdlib-only bridge cell
@@ -127,6 +129,7 @@ Everything is environment-driven. Copy `.env.example` to `.env`.
 | `ATLAS_GITHUB_TOKEN`, `ATLAS_COLAB_GITHUB_REPO` | Enables true one-click Colab |
 | `ATLAS_KAGGLE_USERNAME`, `ATLAS_KAGGLE_KEY` | Enables headless Kaggle GPU |
 | `ATLAS_DEPLOY_DRIVER` | `local_process` (default), `coolify`, or `manifest` |
+| `ATLAS_DEPLOY_SYSTEM_SITE_PACKAGES` | `local_process` only. Default `true`: a deployed app shares the platform's installed packages instead of pulling its own 2.5 GB of torch |
 | `ATLAS_COOLIFY_*` | Base URL, token, project and server UUID |
 | `ATLAS_GOOGLE_CLIENT_ID/SECRET` | Google SSO |
 
@@ -186,6 +189,13 @@ startup ATLAS now regenerates any shipped notebook whose content has drifted,
 matched by its seeded slug. Notebooks an author created or renamed through the
 CMS are left alone, and progress, runs and assignments are never touched.
 
+The same pass installs notebooks a build ships that the install has never seen —
+which is how the corrosion topic went from one notebook to five without anyone
+resetting a database. A notebook a build no longer ships is deleted if nothing
+points at it, and retitled *Superseded* if a run does: taking someone's history
+with it would be worse, and leaving it unlabelled beside its replacements is
+worse still.
+
 ### Topic assignments
 
 On a production instance an intern sees only the topics a supervisor has ticked for
@@ -229,20 +239,53 @@ cohort, or change every password.
 | `tests/google_auth.py` | 31 checks on Google id_token verification: forged signatures, `alg=none`, algorithm confusion, wrong audience, expiry, unverified email, nonce replay, PKCE. No network needed. |
 | `tests/google_flow.py` | 23 checks driving a full sign-in against a stand-in Google: authorize, code exchange, callback, session, and replay rejection. |
 | `tests/assignments.py` | 34 checks that assignment gating holds on every topic-scoped route, and that the pipeline library serves files without path traversal. Needs a dev **and** a prod instance. |
-| `tests/course_e2e.py` | 25 checks driving one whole internship course through the API: lessons, notebook contents, checkpoint upload, bundle, rubric, deploy, portal, and an HTTP fetch of the running app. Needs a dev instance and a trained checkpoint. |
+| `tests/course_e2e.py` | 37 checks driving one whole internship course through the API: lessons, all five corrosion notebooks, checkpoint upload, bundle, rubric, deploy, portal, and an HTTP fetch of the running app. Needs a dev instance and a trained checkpoint. |
 | `tests/capture_manual.py` | Recaptures every manual screenshot from the running app. |
 
-### Topic 6 reference implementation
+### Topic 6: the corrosion pipeline
 
-`templates/corrosion_unet/` is a complete, working U-Net for the 15-class
-corrosion dataset — library, CLI, Streamlit app and a Dockerfile. It doubles as
-the worked example the Stage 6 lesson points at.
+The playground for corrosion segmentation is **five notebooks**, run left to
+right. Each writes into one work folder that the next one reads.
+
+| Notebook | What it does | Default target |
+|---|---|---|
+| `corrosion-1-eda` | finds the dataset, decides what the mask values mean, measures the imbalance, writes `manifest.json` | Platform CPU |
+| `corrosion-2-training` | trains the U-Net, checkpointing every epoch | Colab GPU |
+| `corrosion-3-evaluation` | per-class IoU on the test split, confusion matrix, worst predictions | Colab GPU |
+| `corrosion-4-inference` | segments new photographs, single and bulk, with confidence maps | Platform CPU |
+| `corrosion-5-deployment` | assembles the app bundle, self-checks the rubric, ships it | Platform CPU |
+
+They run unchanged in three places. Dispatched from ATLAS, the injected bridge
+streams metrics into the run timeline. Downloaded into local Jupyter or opened
+straight in Colab, the bootstrap cell supplies a stand-in for that bridge and
+finds the dataset by walking up the directory tree.
+
+**Colab disconnects are designed for, not hoped against.** Everything lands in
+`Drive/MyDrive/atlas_corrosion` rather than `/content`; a checkpoint carrying
+optimiser and scheduler state is written every epoch; saves are atomic, so a
+session killed mid-write leaves the previous checkpoint intact; re-running the
+training cell prints *resuming from epoch N* instead of starting over; and
+`TIME_BUDGET_MIN` stops the loop cleanly before Colab's ceiling does. After a
+disconnect the recovery procedure is: reconnect, Run all, wait.
+
+The dataset in `dataset/corrovision-dataset-v1_semantic_export` is registered
+automatically on boot as a topic dataset — in place, not copied — so an intern
+can attach it to a run and `atlas.dataset()` streams that exact file.
+
+`templates/corrosion_unet/corrosion_kit.py` is the single file all five
+notebooks and the deployed app import: discovery, label space, dataset, U-Net,
+losses, metrics, checkpointing and inference. Each notebook writes its own copy
+next to itself, so nothing depends on reaching this server, and
+`templates/corrosion_app/` is the Streamlit app that notebook 5 ships.
+`templates/corrosion_unet/` remains the fuller reference — package, CLI trainer
+and a Dockerfile.
 
 | Command | What |
 |---|---|
-| `./.venv-app/bin/python tests/test_units.py` | 81 unit checks over metrics, model, losses, data discovery and `app.py` source. |
-| `./.venv-app/bin/python tests/test_e2e.py` | 54 checks: generates data, really trains, reloads the checkpoint, predicts, then boots the Streamlit app and hits it over HTTP. `--fast` skips the quality bars. |
-| `./.venv-app/bin/python tests/test_notebook.py` | 16 checks that execute the platform's playground notebook cell by cell and confirm its checkpoint loads in the deployment app. |
+| `python tests/test_units.py` | 81 unit checks over metrics, model, losses, data discovery and `app.py` source. |
+| `python tests/test_kit.py` | 52 checks on `corrosion_kit.py`: discovery, the background decision, NEAREST mask resizing, damped weights, IoU that refuses to be fooled by a background-only model, atomic checkpoints, and the shipped app's source. |
+| `python tests/test_e2e.py` | 54 checks: generates data, really trains, reloads the checkpoint, predicts, then boots the Streamlit app and hits it over HTTP. `--fast` skips the quality bars. |
+| `python tests/test_notebook.py` | 46 checks that execute all five playground notebooks in order against real data — including killing training and resuming it — and confirm the bundle the last one builds is deployable. |
 
 - `docs/PRD.md` — full product requirements, design rationale and verification log
 - `docs/SYSTEM_DESIGN.md` — architecture, data model, sequence flows

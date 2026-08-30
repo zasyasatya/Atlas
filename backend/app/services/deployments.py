@@ -179,15 +179,85 @@ def deploy(session: Session, deployment: Deployment, *, task_type: str = "classi
     return deployment
 
 
+IS_WINDOWS = os.name == "nt"
+
+
+def _venv_python(venv: Path) -> Path:
+    """Windows puts the interpreter somewhere else, and calls it something else."""
+    return venv / ("Scripts/python.exe" if IS_WINDOWS else "bin/python")
+
+
+def _spawn_kwargs() -> dict:
+    """Start the app in its own process group, so stopping it stops its children.
+
+    POSIX gets a session of its own; Windows gets a job-like process group that
+    CTRL_BREAK and taskkill /T can address. Without this, killing a Streamlit
+    parent leaves the server child holding the port and the next deploy fails
+    with "port is not available".
+    """
+    if IS_WINDOWS:
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _kill_tree(pid: int) -> None:
+    """Kill a process and everything it started. Best effort, never raises."""
+    if IS_WINDOWS:
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                       capture_output=True, check=False)
+        return
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def _site_packages(python: Path) -> str:
+    """Ask an interpreter where its site-packages directory is."""
+    probe = subprocess.run([str(python), "-c",
+                            "import site;print(site.getsitepackages()[-1])"],
+                           capture_output=True, text=True, timeout=60, check=False)
+    return (probe.stdout or "").strip()
+
+
+def _share_platform_packages(deployment_python: Path) -> str:
+    """Let a deployed app import the packages the platform already has.
+
+    A computer-vision bundle asks for torch, which is 2.5 GB per deployment -
+    downloaded again for every app, on a machine that already has it installed
+    for ATLAS itself. On a laptop that is the difference between a deploy that
+    works and one that dies with "No space left on device".
+
+    `venv --system-site-packages` does not help: it shares the *base* Python's
+    packages, and ATLAS runs from a virtualenv of its own, so the child would
+    inherit an empty environment. Adding the platform's site-packages through a
+    .pth file shares the right directory - and because it is appended to
+    sys.path, anything the bundle installs for itself still wins.
+    """
+    platform_packages = _site_packages(Path(sys.executable))
+    target = _site_packages(deployment_python)
+    if not platform_packages or not target or platform_packages == target:
+        return ""
+    try:
+        Path(target, "_atlas_shared.pth").write_text(platform_packages + "\n")
+    except OSError:
+        return ""
+    return platform_packages
+
+
 def _deploy_local(deployment: Deployment, root: Path, port: int, logs: list[str]) -> Deployment:
     stop(deployment)
     venv = root / ".venv"
-    py = venv / "bin" / "python"
+    py = _venv_python(venv)
     try:
         if not py.exists():
             logs.append("[env] creating virtualenv")
             subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True,
                            capture_output=True, timeout=180)
+            if settings.deploy_system_site_packages:
+                shared = _share_platform_packages(py)
+                logs.append(f"[env] sharing the platform's packages ({shared})"
+                            if shared else "[env] could not share platform packages")
         req = root / "requirements.txt"
         logs.append("[env] installing requirements (this can take a minute)")
 
@@ -198,8 +268,12 @@ def _deploy_local(deployment: Deployment, root: Path, port: int, logs: list[str]
         # afterwards so a deployment does not keep the scratch around.
         scratch = root / ".pip-tmp"
         scratch.mkdir(exist_ok=True)
-        pip_env = dict(os.environ, TMPDIR=str(scratch),
-                       PIP_CACHE_DIR=str(root / ".pip-cache"),
+        # One cache for every deployment, not one per app: two Streamlit
+        # bundles otherwise download the same wheels twice and keep two copies.
+        cache = settings.storage_dir / "pip-cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        pip_env = dict(os.environ, TMPDIR=str(scratch), TEMP=str(scratch), TMP=str(scratch),
+                       PIP_CACHE_DIR=str(cache),
                        PIP_DISABLE_PIP_VERSION_CHECK="1")
         try:
             proc = subprocess.run([str(py), "-m", "pip", "install", "-q", "-r", str(req)],
@@ -239,7 +313,7 @@ def _deploy_local(deployment: Deployment, root: Path, port: int, logs: list[str]
     log_file = root / "runtime.log"
     handle = log_file.open("wb")
     proc = subprocess.Popen(cmd, cwd=str(root), stdout=handle, stderr=subprocess.STDOUT,
-                            env=env, start_new_session=True)
+                            env=env, **_spawn_kwargs())
 
     # Don't claim RUNNING until the app is actually serving. A Streamlit that
     # dies on a bad import or a taken port would otherwise be published to the
@@ -265,10 +339,7 @@ def _deploy_local(deployment: Deployment, root: Path, port: int, logs: list[str]
         logs.append(f"[run] app did not start listening on {port}"
                     + (f": {tail}" if tail else ""))
         deployment.status = DeploymentStatus.FAILED
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        _kill_tree(proc.pid)
         return deployment
 
     deployment.process_pid = proc.pid
@@ -313,14 +384,25 @@ def stop(deployment: Deployment) -> None:
     """Stop the app and wait for it to actually be gone.
 
     Signalling and returning immediately is not enough: a redeploy starts the
-    replacement within milliseconds, the old Streamlit still holds the port,
-    and the new one exits with "Port 8600 is not available" while the database
-    happily records RUNNING. So SIGTERM, wait, then SIGKILL, then confirm the
-    port is free before anyone tries to bind it again.
+    replacement within milliseconds, the old Streamlit still holds the port, and
+    the new one exits with "Port 8600 is not available" while the database
+    happily records RUNNING. So signal, wait, kill, then confirm it is gone
+    before anyone tries to bind the port again.
     """
     pid = deployment.process_pid
     deployment.process_pid = None
     if not pid:
+        return
+
+    if IS_WINDOWS:
+        # No process groups to signal politely; taskkill /T takes the tree.
+        _kill_tree(pid)
+        for _ in range(30):
+            probe = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"],
+                                   capture_output=True, text=True, check=False)
+            if str(pid) not in (probe.stdout or ""):
+                return
+            time.sleep(0.1)
         return
 
     try:
