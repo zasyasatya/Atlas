@@ -76,6 +76,25 @@ PIPELINES: list[Pipeline] = [
         ],
     ),
     Pipeline(
+        slug="corrosion-app",
+        title="Corrosion app - what the notebooks ship",
+        summary=(
+            "The deployment bundle the Topic 6 playground assembles: a Streamlit app "
+            "with single and bulk analysis, a documentation tab fed by the real "
+            "evaluation report, and confidence on every prediction. It imports "
+            "corrosion_kit.py - the same file the five notebooks write next to "
+            "themselves - so what an intern trains is exactly what the app serves."
+        ),
+        topic_slug="corrosion-segmentation",
+        folder="corrosion_app",
+        entrypoint="app.py",
+        highlights=[
+            "app.py - single image, bulk upload and a zip, documentation, confidence map",
+            "requirements.txt - CPU torch wheels, because inference is one image at a time",
+            "README.md - what goes in the bundle, and the rubric rule each file satisfies",
+        ],
+    ),
+    Pipeline(
         slug="streamlit-starter",
         title="Streamlit starter",
         summary=("A minimal Streamlit app that already scores 100% on the graduation "

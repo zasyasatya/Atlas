@@ -43,6 +43,7 @@ const SECTIONS = [
   { id: 'data', label: 'Datasets & decks', icon: IcDatabase },
   { id: 'deployment', label: 'Shipping your app', icon: IcRocket },
   { id: 'portal', label: 'App portal', icon: IcApps },
+  { id: 'walkthrough', label: 'Full walkthrough', icon: IcFlask },
   { id: 'progress', label: 'XP & leaderboard', icon: IcTrophy },
   { id: 'settings', label: 'Settings & config', icon: IcSettings, operator: true },
   { id: 'mobile', label: 'On mobile', icon: IcGrid },
@@ -295,7 +296,7 @@ export default function Manual() {
               [String(chapters.length), 'chapters'],
               // Hiding the operator chapters drops exactly one figure: the
               // Settings screenshot. Getting started and Troubleshooting have none.
-              [ops ? '16' : '15', 'screenshots'],
+              [ops ? '33' : '32', 'screenshots'],
               ['6', 'topics'], ['5', 'rubric rules'],
             ].map(([n, l]) => (
               <div key={l} className="rounded-xl border border-line bg-paper-card px-3.5 py-2">
@@ -639,10 +640,34 @@ export default function Manual() {
           {/* ============ 06 PLAYGROUND ============ */}
           <Section
             id="playground" num={n('playground')} title="Playground & GPUs"
-            lead="Every topic has its own notebook. Heavy vision training is routed to a borrowed GPU automatically — this server has none, and needs none."
+            lead="Every topic has its own notebook — corrosion segmentation has five, one per stage. Heavy vision training is routed to a borrowed GPU automatically: this server has none, and needs none."
           >
             <Figure num={`Fig. ${n('playground')}.1`} src="/manual/08-playground.jpg" onZoom={fig}
               caption="The playground. Topic tabs across the top, the notebook preview in the middle, and the launch panel on the right." />
+
+            <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">A topic can be a pipeline</h3>
+            <p>
+              Corrosion segmentation ships as five notebooks rather than one, listed left to right
+              above the preview. Run them in order; each writes into a work folder the next one
+              reads.
+            </p>
+            <Table
+              head={['Notebook', 'What it does', 'Runs on']}
+              rows={[
+                ['1. Preprocessing & EDA', 'Finds the dataset, reads what the mask values mean, measures the class imbalance.', 'Platform CPU'],
+                ['2. Training the U-Net', 'The real training run, checkpointed every epoch.', 'Colab / Kaggle GPU'],
+                ['3. Evaluation', 'Per-class IoU on the test split, plus the worst predictions.', 'GPU or CPU'],
+                ['4. Inference', 'Segments new photographs, one at a time or in bulk.', 'Platform CPU'],
+                ['5. Deployment', 'Builds the app bundle and checks it against the rubric.', 'Platform CPU'],
+              ]}
+            />
+            <Note kind="ok" title="A disconnect costs you nothing">
+              The training notebook keeps its checkpoints in Google Drive, not on the Colab
+              machine, and writes one every epoch with the optimiser state included. If the
+              runtime drops — idle timeout, closed lid, the 12-hour limit — reconnect and run the
+              cell again: it prints <em>resuming from epoch N</em> and carries on. It also stops
+              itself before Colab does, so you are never cut off mid-epoch.
+            </Note>
 
             <h3 className="mb-2 mt-8 text-[17px] font-bold text-ink">Choosing where it runs</h3>
             <Table
@@ -863,6 +888,276 @@ export default function Manual() {
               interface from somewhere else. <strong>App routing</strong> shows the generated nginx
               config for that case: one managed block per app, written on every deploy and reload,
               never overwriting a file it does not own.
+            </Note>
+          </Section>
+
+          {/* ============ FULL WALKTHROUGH ============ */}
+          <Section
+            id="walkthrough" num={n('walkthrough')} title="Full walkthrough: corrosion segmentation"
+            lead="One pipeline, end to end. Everything the earlier chapters describe separately, in the order you actually do it: from opening the topic to an app the whole cohort can click in the portal. Every screenshot below is this pipeline actually running."
+          >
+            <p>
+              Topic 6 is the longest track on the platform, so it is the one worth walking through
+              completely. The work splits into three phases and fifteen steps. None of it needs a
+              GPU on your own machine, and none of it needs a repository checkout.
+            </p>
+
+            <Table
+              head={['Phase', 'Steps', 'Where it happens', 'What you have at the end']}
+              rows={[
+                ['A — Understand', '1–3', 'Curriculum, Datasets',
+                 'Six lessons read, the dataset and its 16 mask values understood.'],
+                ['B — Build', '4–10', 'Playground, Pipeline Library',
+                 'A trained checkpoint, honest test metrics, and a zipped app bundle.'],
+                ['C — Ship', '11–15', 'Deployment, App Portal',
+                 'A live URL scoring 5/5 on the rubric, published to the portal.'],
+              ]}
+            />
+
+            <Note kind="info" title="You can stop and resume at every step">
+              Each notebook writes into a work folder the next one reads, and every artifact is
+              uploaded back to ATLAS. Closing your laptop between steps costs nothing.
+            </Note>
+
+            {/* -------- phase A -------- */}
+            <h3 className="mb-2 mt-10 text-[17px] font-bold text-ink">Phase A — understand the problem</h3>
+
+            <Step n={1} title="Open the topic">
+              <M>Curriculum</M> → <strong>Corrosion Type Segmentation</strong>. The hero states the
+              shape of the job: 15 corrosion classes, advanced, roughly 26 hours. Six stages sit on
+              the left, the lesson body on the right, and the three shortcuts top right —
+              <strong> Playground</strong>, <strong>Datasets</strong>, <strong>Deploy app</strong> —
+              are the three places the rest of this walkthrough happens.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.1`} src="/manual/corrosion-01-topic.jpg" onZoom={fig}
+              caption="The topic page. Six stages worth 200 XP in total, and the progress bar that tracks them." />
+
+            <Step n={2} title="Read all six stages before you train anything">
+              They are ordered deliberately: why segmentation instead of classification (Stage 1),
+              how image data is actually shaped in Python (2), what a convolution does (3), U-Net
+              and the skip connection (4), why 82% accuracy can describe a useless model (5), and
+              the boss fight — train on a borrowed GPU and ship it (6). Stage 4 carries an
+              interactive diagram: tap any of the eleven steps to see what the tensor looks like at
+              that point in the network.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.2`} src="/manual/corrosion-02-lesson.jpg" onZoom={fig}
+              caption="Stage 4. The U-Net as eleven tappable steps — an encoder down to a 32px bottleneck, five upsampling stages that each receive a skip connection, and a 1×1 convolution to 16 classes." />
+
+            <Step n={3} title="Look at the dataset before the model">
+              <M>Datasets &amp; Decks</M>, filtered to this topic. <strong>CorroVision semantic
+              export v1</strong> is a 211 MB zip: 3,129 annotated inspection photographs, split
+              2,498 train / 307 validation / 324 test. Every photograph has a single-channel mask
+              PNG in which the pixel value <em>is</em> the class index — 0 is background, 1–15 are
+              five corrosion families at three severities each.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.3`} src="/manual/corrosion-03-dataset.jpg" onZoom={fig}
+              caption="The dataset library. Below the export sit the artifacts a finished run pushed back: the trained checkpoint, the split manifest, and the plots the EDA notebook produced." />
+
+            <Note kind="warn" title="A mask opened in an image viewer looks black">
+              Values of 0–15 out of a possible 255 are almost pure black on screen. That is correct,
+              not a corrupt file. Read masks into an array and inspect the numbers — never by eye.
+            </Note>
+
+            {/* -------- phase B -------- */}
+            <h3 className="mb-2 mt-10 text-[17px] font-bold text-ink">Phase B — run the five notebooks</h3>
+
+            <p>
+              <M>Playground</M> → <strong>Corrosion Type Segmentation</strong>. Five notebooks sit
+              above the preview instead of one, because a single notebook that does everything
+              cannot be re-run: looking at one prediction should not cost you another training run.
+              Work left to right.
+            </p>
+
+            <Step n={4} title="Notebook 1 — Preprocessing & EDA">
+              Select <strong>1. Preprocessing &amp; EDA</strong>, leave the target on
+              <strong> Platform CPU</strong>, choose <strong>CorroVision semantic export v1</strong>
+              under <em>Attach dataset</em>, and press <strong>Run notebook</strong>. It locates the
+              data, checks that every image has a matching mask, measures the class imbalance and
+              writes the split manifest the other four notebooks read.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.4`} src="/manual/corrosion-04-playground.jpg" onZoom={fig}
+              caption="The playground on Topic 6: five notebook tabs, the rendered notebook in the middle, the launch panel on the right." />
+
+            <Step n={5} title="Read the run before moving on">
+              Open the <strong>Runs</strong> tab and expand the run. Every <M>atlas.metric(...)</M>
+              call becomes a tile. Three numbers decide whether the rest of the pipeline is worth
+              starting: <strong>pair problems must be 0</strong> — no image is missing its mask;
+              <strong> num classes must be 16</strong> — 15 plus background; and <strong>background
+              share</strong> tells you what you are up against, here 0.69, so 69% of all labelled
+              pixels mean &quot;no corrosion&quot;. The pane below is the notebook&apos;s output,
+              streamed live.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.5`} src="/manual/corrosion-05-run.jpg" onZoom={fig}
+              caption="A finished EDA run: 2,498 / 307 / 324 images, 16 classes, no broken image–mask pairs, median photograph 225×154 px, and the artifacts it uploaded." />
+
+            <Step n={6} title="Notebook 2 — train the U-Net on a borrowed GPU">
+              Select <strong>2. Training the U-Net</strong>. It is tagged <strong>GPU required</strong>
+              and the launch panel has already moved to <strong>Google Colab GPU</strong> — choose
+              Platform CPU anyway and ATLAS reroutes the run and says so. Launching opens a Colab
+              tab: press <em>Run all</em> there and leave it open. Logs, metrics and the checkpoint
+              stream back into the Runs tab here.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.6`} src="/manual/corrosion-06-training.jpg" onZoom={fig}
+              caption="Notebook 2 selected: the GPU required badge on the header, and Colab already chosen in the launch panel." />
+
+            <Note kind="ok" title="A Colab disconnect costs you nothing">
+              Checkpoints go to Google Drive every epoch with the optimiser state included, not to
+              the Colab machine. If the runtime drops — idle timeout, closed lid, the 12-hour limit
+              — run the training cell again: it prints <em>resuming from epoch N</em> and carries
+              on. It also stops itself before Colab does, so you are never cut off mid-epoch.
+            </Note>
+
+            <Step n={7} title="Notebook 3 — evaluate on the test split, per class">
+              Select <strong>3. Evaluation</strong>. It scores the checkpoint on the 324 test images
+              the model has never been scored on and reports <strong>IoU per class</strong>, a
+              confusion matrix, and the worst predictions next to their ground truth. Validation
+              numbers are optimistic by construction — every &quot;keep this checkpoint&quot;
+              decision looked at them — so the test split is the number you report.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.7`} src="/manual/corrosion-07-evaluation.jpg" onZoom={fig}
+              caption="Notebook 3, section 2. The test split is loaded from the manifest notebook 1 wrote, so evaluation scores exactly the images training never saw." />
+
+            <Note kind="warn" title="This is the 82% trap from Stage 5">
+              The reference checkpoint that ships with ATLAS reaches <strong>68% pixel accuracy</strong>
+              and a <strong>mean IoU of 0.126</strong>. Both describe the same model. Predicting
+              &quot;background&quot; everywhere would score around 69% accuracy and zero IoU on every
+              corrosion class — which is why pixel accuracy is never the headline number here.
+            </Note>
+
+            <Step n={8} title="Notebook 4 — segment new photographs">
+              Select <strong>4. Inference</strong>. One photograph at a time, then a whole folder in
+              bulk, each with a confidence map — through the same <M>Predictor</M> class the deployed
+              app uses. Whatever works here works in the app, because it is the same code path.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.8`} src="/manual/corrosion-08-inference.jpg" onZoom={fig}
+              caption="Notebook 4, section 2 — a single photograph through the Predictor, with the confidence map beside the mask." />
+
+            <Step n={9} title="Notebook 5 — assemble the bundle and self-check it">
+              Select <strong>5. Deployment</strong>. It builds the folder that becomes your app,
+              zips it, and runs the rubric checks locally, so a failure costs seconds instead of a
+              deploy cycle. It also loads the checkpoint into the app&apos;s <M>Predictor</M> and
+              runs one prediction — a bundle that passes the rubric can still fail to boot.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.9`} src="/manual/corrosion-09-deploy-notebook.jpg" onZoom={fig}
+              caption="Notebook 5. Fourteen cells that end with a zip file and a pass/fail line for each rubric rule." />
+
+            <Table
+              head={['In the bundle', 'Why it is there']}
+              rows={[
+                [<M key="a">app.py</M>, 'The Streamlit interface — the actual deliverable.'],
+                [<M key="b">corrosion_kit.py</M>, 'Model and inference code: the same file the notebooks imported.'],
+                [<M key="c">best.pt</M>, 'The trained weights.'],
+                [<M key="d">report.json</M>, 'Per-class test IoU, so the Documentation tab shows real numbers.'],
+                [<M key="e">history.csv</M>, 'The training curve, for the same reason.'],
+                [<M key="f">requirements.txt</M>, 'CPU-only wheels, pinned enough to build.'],
+                [<M key="g">examples/</M>, 'Four test photographs, so a reviewer can click something immediately.'],
+              ]}
+            />
+            <p>
+              What stays out: the dataset, the notebooks, <M>last.pt</M> — it carries optimiser state
+              and is twice the size for no benefit at serving time — and anything under{' '}
+              <M>__pycache__</M>.
+            </p>
+
+            <Step n={10} title="Optional — read the reference implementation">
+              <M>Pipeline Library</M> → <strong>Corrosion U-Net – full pipeline</strong>. Eighteen
+              files, browsable in place: the U-Net written out in full, damped class weighting,
+              combined cross-entropy and Dice loss, per-class IoU, a CLI trainer, the Streamlit app
+              and a Dockerfile. <strong>Download .zip</strong> gives you the folder without anyone
+              else&apos;s run history in it.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.10`} src="/manual/corrosion-10-pipeline.jpg" onZoom={fig}
+              caption="The reference pipeline, open at app.py. Its docstring maps each rubric rule to the part of the file that satisfies it." />
+
+            {/* -------- phase C -------- */}
+            <h3 className="mb-2 mt-10 text-[17px] font-bold text-ink">Phase C — ship it to the portal</h3>
+
+            <Step n={11} title="Create the deployment record">
+              <M>Deployment</M> → <strong>New deployment</strong>. Name it, pick
+              <strong> Corrosion Type Segmentation</strong> as the topic, framework
+              <strong> Streamlit</strong>, entrypoint <M>app.py</M>. One record per app — you can
+              re-upload the bundle as often as you like without creating another.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.11`} src="/manual/corrosion-11-deploy-form.jpg" onZoom={fig}
+              caption="The New deployment form. Framework offers Streamlit and Gradio only, because rule R1 allows nothing else." />
+
+            <Step n={12} title="Upload the bundle, paste the board URL, deploy">
+              <strong>Replace bundle</strong> takes the zip notebook 5 produced. Paste your Whimsical
+              board link into <em>Whimsical board URL</em> and press <strong>Save</strong> — R5 is
+              the one rule no amount of code can satisfy. Then <strong>Deploy</strong>: ATLAS
+              generates a Dockerfile, installs the requirements, starts the app on an allocated port
+              and re-runs all five checks against what is actually running. A cold deploy takes
+              roughly 30 seconds; <strong>Show build logs</strong> tells you what it is doing.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.12`} src="/manual/corrosion-12-deployment.jpg" onZoom={fig}
+              caption="The finished deployment: status Running, 5/5 checks, 100%. Re-check re-scores the bundle at any time, and Dockerfile downloads the exact recipe ATLAS generated." />
+
+            <Note kind="info" title="If a rule fails, it tells you what is missing">
+              Every check carries a detail line — hover the R-badge wherever it appears. R2 wants
+              both a single-entry widget and a file uploader; R3 wants all four documentation
+              headings; R4 wants a confidence number and a chart. Fix it,
+              <strong> Replace bundle</strong>, <strong>Re-check</strong>.
+            </Note>
+
+            <Step n={13} title="Confirm it reached the portal">
+              Nothing is published by hand. The moment the deployment reaches
+              <strong> Running</strong> it appears in <M>App Portal</M> with its framework, owner,
+              topic, rubric badges and a direct link. This is the surface supervisors review.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.13`} src="/manual/corrosion-13-portal.jpg" onZoom={fig}
+              caption="The portal. The corrosion app is live and graduation-ready, alongside the rest of the cohort's work." />
+
+            <Step n={14} title="Open the app and run a photograph through it">
+              <strong>Open app</strong>. The sidebar states what is loaded — checkpoint, validation
+              mean IoU, class count, input size, parameter count — and carries the Whimsical link R5
+              asks for. Drop an inspection photograph on the uploader and the model returns the
+              input, the predicted class map and an overlay, then the numbers underneath: dominant
+              class, its confidence, mean confidence, and how much of the surface reads as corroded.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.14`} src="/manual/corrosion-14-app.jpg" onZoom={fig}
+              caption="The deployed app with a photograph loaded: input, predicted classes, and the overlay at the strength set in the sidebar." />
+            <Figure num={`Fig. ${n('walkthrough')}.15`} src="/manual/corrosion-15-app-detail.jpg" onZoom={fig}
+              caption="Below the images: per-class area and confidence, the chart R4 requires, and the confidence map — dark bands sit on class boundaries, which is where the model is genuinely unsure." />
+
+            <Step n={15} title="Check the Documentation tab — it is what R3 grades">
+              The third tab has to cover four things: dataset, architecture, evaluation and
+              limitations. It reads <M>report.json</M> and <M>history.csv</M> out of the bundle, so
+              the numbers a reviewer sees are the ones your own run produced, not a copied paragraph.
+            </Step>
+            <Figure num={`Fig. ${n('walkthrough')}.16`} src="/manual/corrosion-16-app-docs.jpg" onZoom={fig}
+              caption="Documentation, section 1. The five corrosion families, what each looks like, and why each one matters to an inspector." />
+            <Figure num={`Fig. ${n('walkthrough')}.17`} src="/manual/corrosion-17-app-eval.jpg" onZoom={fig}
+              caption="Documentation, section 3. Per-class IoU on the test split, sorted by pixel count — the honest view of which classes the model actually learned." />
+
+            <h3 className="mb-2 mt-10 text-[17px] font-bold text-ink">When something goes wrong</h3>
+            <Table
+              head={['Symptom', 'Cause', 'Fix']}
+              rows={[
+                ['Notebook 1 reports pair problems above 0',
+                 'Images without a matching mask, usually a stray file in the folder.',
+                 'Re-export the dataset or delete the unpaired images — training silently skips them otherwise.'],
+                ['The training run never finishes',
+                 'The Colab tab was closed, so the notebook stopped.',
+                 'Reopen it and run the training cell again: it resumes from the last checkpoint on Drive.'],
+                ['Mean IoU is near zero but accuracy looks fine',
+                 'The model has collapsed to predicting background everywhere.',
+                 'Check the class weighting in notebook 2, and read Stage 5 again.'],
+                ['Notebook 5 stops with “No checkpoint”',
+                 'Notebook 2 has not produced a best.pt in this work folder.',
+                 'Run notebook 2 to completion first.'],
+                ['The deployment sits in building',
+                 'Requirements are still installing, or a package has no CPU wheel.',
+                 'Open Show build logs. Keep torch on the CPU index, as the generated requirements do.'],
+                ['The app loads but says no model checkpoint',
+                 'best.pt was left out of the zip.',
+                 'Rebuild the bundle with notebook 5 and use Replace bundle.'],
+              ]}
+            />
+
+            <Note kind="ok" title="What finished looks like">
+              Six stages complete, a run in the timeline with real metrics, a checkpoint in the
+              dataset library, and a deployment at 5/5 whose URL opens a working app from the
+              portal. That is the whole deliverable.
             </Note>
           </Section>
 

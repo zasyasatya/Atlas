@@ -60,6 +60,30 @@ class ColabRunner:
         # Fallback: serve the notebook from ATLAS and let Colab import it by URL.
         raw = f"{api_base}/api/runs/{run.id}/notebook.ipynb?token={run.callback_token}"
         colab = f"https://colab.research.google.com/#create=true&url={raw}"
+
+        # A Colab runtime is on the other side of the internet. If ATLAS is only
+        # reachable at localhost, neither the import URL nor the callbacks can
+        # work - so say that plainly instead of handing over a link that fails
+        # with an unexplained error inside Colab.
+        host = api_base.split("://", 1)[-1].split("/")[0].split(":")[0]
+        if not settings.public_base_url or host in {"127.0.0.1", "localhost", "0.0.0.0"}:
+            return LaunchResult(
+                status=RunStatus.QUEUED,
+                external_url="https://colab.research.google.com/",
+                logs=("ATLAS_PUBLIC_BASE_URL is not set to an address Colab can reach "
+                      f"(currently {api_base}), so Colab cannot import the notebook by URL "
+                      "and the bridge cannot call back. Falling back to manual upload."),
+                instructions=[
+                    "Download the .ipynb from the playground (button above the notebook).",
+                    "In Colab: File -> Upload notebook, then Runtime -> Change runtime "
+                    "type -> T4 GPU -> Run all.",
+                    "The notebook runs standalone - it supplies its own bridge stand-in and "
+                    "keeps checkpoints in Google Drive.",
+                    "To stream metrics back into this run, set ATLAS_PUBLIC_BASE_URL to a "
+                    "public address for this server and launch again.",
+                ],
+            )
+
         return LaunchResult(
             status=RunStatus.QUEUED,
             external_url=colab,

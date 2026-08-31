@@ -14,8 +14,8 @@ from app.core.security import hash_password
 from app.services.corrosion_lessons import corrosion_lessons
 from app.domain.enums import (AppFramework, ComputeTarget, DeploymentStatus,
                               LessonBlockType, Role)
-from app.domain.models import (Assignment, Deployment, Lesson, LessonBlock, Notebook,
-                               Topic, User, utcnow)
+from app.domain.models import (Asset, Assignment, Deployment, Lesson, LessonBlock,
+                               Notebook, Topic, User, utcnow)
 from app.services import notebook_factory as nf
 
 USERS = [
@@ -154,11 +154,124 @@ TOPICS = [
                    "You are building the second opinion that never gets tired at 4pm.",
         "steps": ["Inspection photos", "Annotate masks", "Augment", "U-Net training", "IoU per class", "Damage overlay"],
         "lessons": corrosion_lessons,
-        "nb": ("corrosion-playground", "Corrosion Segmentation Playground", ComputeTarget.COLAB_GPU, True,
-               nf.corrosion_segmentation_notebook),
+        # Five notebooks, not one. An intern who wants to look at a prediction
+        # should not have to re-run training to get there, and a Colab session
+        # that dies during evaluation must not cost the trained model.
+        "nbs": [
+            (slug, title, description, target, gpu, builder)
+            for (slug, title, description, builder), (target, gpu) in zip(
+                nf.CORROSION_NOTEBOOKS,
+                [(ComputeTarget.LOCAL_CPU, False),   # 1 EDA - reads files, no GPU
+                 (ComputeTarget.COLAB_GPU, True),    # 2 training - a real convnet, GPU
+                 (ComputeTarget.COLAB_GPU, False),   # 3 evaluation - faster on GPU, fine without
+                 (ComputeTarget.LOCAL_CPU, False),   # 4 inference - one image at a time
+                 (ComputeTarget.LOCAL_CPU, False)],  # 5 deployment - packaging only
+            )
+        ],
     },
 ]
 
+CV_REQUIREMENTS = "torch\nnumpy\npillow\nmatplotlib"
+
+
+def _notebook_specs(spec: dict) -> list[dict]:
+    """Normalise a topic's notebooks - one or several - to a list of specs."""
+    if spec.get("nbs"):
+        return [{"slug": slug, "title": title, "description": description,
+                 "target": target, "gpu": gpu, "builder": builder,
+                 "requirements": CV_REQUIREMENTS + ("\nstreamlit" if "deployment" in slug else "")}
+                for slug, title, description, target, gpu, builder in spec["nbs"]]
+    slug, title, target, gpu, builder = spec["nb"]
+    return [{
+        "slug": slug, "title": title,
+        "description": (f"Guided playground for {spec['title']}. "
+                        "Bridge helpers stream metrics back to ATLAS."),
+        "target": target, "gpu": gpu, "builder": builder,
+        "requirements": "torch\ntorchvision\nultralytics" if gpu else "pandas\nscikit-learn\nnumpy",
+    }]
+
+
+
+CORROSION_DATASET_STEM = "corrovision-dataset-v1_semantic_export"
+
+
+def ensure_corrosion_dataset(session: Session) -> Asset | None:
+    """Register the corrosion export sitting in `dataset/` as a topic dataset.
+
+    The file is registered **where it already is** rather than copied into
+    storage: it is 220 MB, and a second copy buys nothing. Downloads and the run
+    bridge both serve `stored_path` directly, so an intern can attach it to a
+    run and `atlas.dataset()` streams this exact file.
+
+    Nothing happens if the export is not on this machine - a deployment that
+    fetches its data another way is not broken, it just has no local copy to
+    register.
+    """
+    from app.domain.enums import AssetKind
+
+    repo_root = Path(__file__).resolve().parents[3]
+    archive = repo_root / "dataset" / f"{CORROSION_DATASET_STEM}.zip"
+    folder = repo_root / "dataset" / CORROSION_DATASET_STEM
+    if not archive.exists():
+        return None
+
+    topic = session.exec(
+        select(Topic).where(Topic.slug == "corrosion-segmentation")).first()
+    if not topic:
+        return None
+
+    existing = session.exec(
+        select(Asset).where(Asset.topic_id == topic.id,
+                            Asset.filename == archive.name)).first()
+    if existing:
+        if existing.stored_path != str(archive):
+            existing.stored_path = str(archive)   # the checkout moved
+            session.add(existing)
+            session.commit()
+        return existing
+
+    # Count what is actually in there, so the Datasets tab shows the real split
+    # rather than a number someone typed into a description once.
+    rows: list[list[str]] = []
+    total = 0
+    for split in ("train", "val", "test"):
+        images = folder / split / "images"
+        masks = folder / split / "masks"
+        if images.is_dir():
+            n_images = sum(1 for _ in images.iterdir())
+            n_masks = sum(1 for _ in masks.iterdir()) if masks.is_dir() else 0
+            rows.append([split, f"{n_images:,}", f"{n_masks:,}"])
+            total += n_images
+
+    classes = folder / "classes.txt"
+    class_names = ([line.strip() for line in classes.read_text().splitlines() if line.strip()]
+                   if classes.exists() else [])
+
+    uploader = session.exec(select(User).where(User.email == "supervisor@atlas.id")).first()
+    asset = Asset(
+        topic_id=topic.id, kind=AssetKind.DATASET,
+        title="CorroVision semantic export v1",
+        description=(
+            f"{total:,} annotated inspection photographs with single-channel mask PNGs - "
+            f"{len(class_names) or 15} corrosion classes (five families x three severities) "
+            "plus an unlisted background at index 0. Attach it to a playground run and "
+            "`atlas.dataset()` downloads it into the notebook."),
+        filename=archive.name, stored_path=str(archive),
+        content_type="application/zip", size_bytes=archive.stat().st_size,
+        stage="split",
+        preview_json=json.dumps({
+            "columns": ["split", "images", "masks"],
+            "rows_preview": rows,
+            "row_count": total,
+            "column_count": 3,
+            "classes": class_names,
+        }),
+        uploaded_by=uploader.id if uploader else None,
+    )
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+    return asset
 
 
 def _seed_demo_deployment(session: Session) -> None:
@@ -209,6 +322,7 @@ def seed(session: Session) -> None:
         # platform is code, not content, and an existing install would
         # otherwise keep serving whatever shipped the day it was created.
         refresh_notebooks(session)
+        ensure_corrosion_dataset(session)
         return
 
     for email, name, role, password, cohort in USERS:
@@ -245,16 +359,17 @@ def seed(session: Session) -> None:
                 session.add(block)
             session.commit()
 
-        slug, title, target, gpu, builder = spec["nb"]
-        session.add(Notebook(
-            topic_id=topic.id or 0, slug=slug, title=title,
-            description=f"Guided playground for {spec['title']}. Bridge helpers stream metrics back to ATLAS.",
-            default_target=target, requires_gpu=gpu,
-            content_json=json.dumps(builder(), ensure_ascii=False),
-            requirements="pandas\nscikit-learn\nnumpy" if not gpu else "torch\ntorchvision\nultralytics",
-        ))
+        for notebook_spec in _notebook_specs(spec):
+            session.add(Notebook(
+                topic_id=topic.id or 0, slug=notebook_spec["slug"],
+                title=notebook_spec["title"], description=notebook_spec["description"],
+                default_target=notebook_spec["target"], requires_gpu=notebook_spec["gpu"],
+                content_json=json.dumps(notebook_spec["builder"](), ensure_ascii=False),
+                requirements=notebook_spec["requirements"],
+            ))
         session.commit()
 
+    ensure_corrosion_dataset(session)
     _seed_demo_deployment(session)
     _seed_demo_assignments(session)
 
@@ -272,28 +387,92 @@ def refresh_notebooks(session: Session) -> int:
     slug - anything an author created or renamed through the CMS is left alone.
     Progress, runs and assignments are untouched either way.
     """
-    by_slug = {spec["nb"][0]: spec for spec in TOPICS}
+    wanted: dict[str, tuple[dict, dict]] = {}
+    for spec in TOPICS:
+        for notebook_spec in _notebook_specs(spec):
+            wanted[notebook_spec["slug"]] = (spec, notebook_spec)
+
+    existing = {nb.slug: nb for nb in session.exec(select(Notebook)).all()}
     changed = 0
 
-    for notebook in session.exec(select(Notebook)).all():
-        spec = by_slug.get(notebook.slug)
-        if not spec:
-            continue                      # author-created; not ours to rewrite
-        slug, title, target, gpu, builder = spec["nb"]
-        fresh = json.dumps(builder(), ensure_ascii=False)
-        if notebook.content_json == fresh:
+    for slug, (spec, notebook_spec) in wanted.items():
+        fresh = json.dumps(notebook_spec["builder"](), ensure_ascii=False)
+        notebook = existing.get(slug)
+
+        if notebook is None:
+            # A notebook this build ships that the install has never seen. Topic
+            # 6 went from one notebook to five exactly this way, and an install
+            # created before that would otherwise never see the other four.
+            topic = session.exec(select(Topic).where(Topic.slug == spec["slug"])).first()
+            if not topic:
+                continue
+            session.add(Notebook(
+                topic_id=topic.id or 0, slug=slug, title=notebook_spec["title"],
+                description=notebook_spec["description"], default_target=notebook_spec["target"],
+                requires_gpu=notebook_spec["gpu"], content_json=fresh,
+                requirements=notebook_spec["requirements"],
+            ))
+            changed += 1
+            continue
+
+        if (notebook.content_json == fresh
+                and notebook.title == notebook_spec["title"]
+                and notebook.description == notebook_spec["description"]):
             continue                      # already current
 
         notebook.content_json = fresh
-        notebook.title = title
-        notebook.default_target = target
-        notebook.requires_gpu = gpu
+        notebook.title = notebook_spec["title"]
+        notebook.description = notebook_spec["description"]
+        notebook.default_target = notebook_spec["target"]
+        notebook.requires_gpu = notebook_spec["gpu"]
+        notebook.requirements = notebook_spec["requirements"]
         notebook.updated_at = utcnow()
         session.add(notebook)
         changed += 1
 
+    changed += _retire_notebooks(session, set(wanted))
+
     if changed:
         session.commit()
+    return changed
+
+
+# Slugs this build no longer ships. Retired only when nothing points at them:
+# a notebook someone has actually run keeps its runs, and itself.
+RETIRED_SLUGS = {"corrosion-playground"}
+
+
+RETIRED_PREFIX = "Superseded - "
+RETIRED_NOTE = ("Superseded by the five-notebook pipeline on this topic "
+                "(EDA, training, evaluation, inference, deployment). Kept because a "
+                "run still points at it; nothing new should start here.")
+
+
+def _retire_notebooks(session: Session, current: set[str]) -> int:
+    """Drop notebooks this build no longer ships - or label them if they are in use.
+
+    Deleting one that has runs would take someone's history with it, so a used
+    notebook is kept and retitled instead. An unlabelled leftover sitting beside
+    its replacements is worse than either: an intern cannot tell which of the
+    two they are supposed to open.
+    """
+    from app.domain.models import Run
+
+    changed = 0
+    for notebook in session.exec(select(Notebook)).all():
+        if notebook.slug in current or notebook.slug not in RETIRED_SLUGS:
+            continue
+        used = session.exec(select(Run).where(Run.notebook_id == notebook.id)).first()
+        if used is None:
+            session.delete(notebook)
+            changed += 1
+            continue
+        if not notebook.title.startswith(RETIRED_PREFIX):
+            notebook.title = RETIRED_PREFIX + notebook.title
+            notebook.description = RETIRED_NOTE
+            notebook.updated_at = utcnow()
+            session.add(notebook)
+            changed += 1
     return changed
 
 

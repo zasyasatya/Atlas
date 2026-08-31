@@ -103,12 +103,14 @@ function Playground() {
           {/* notebook */}
           <div className="space-y-4">
             {topicNbs.length > 1 && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {topicNbs.map((n) => (
                   <button key={n.id} onClick={() => setActiveNb(n)}
+                    title={n.description}
                     className={`px-3 py-1.5 rounded-lg text-[12.5px] font-semibold border ${
                       activeNb?.id === n.id ? 'bg-sage-100 border-sage-300 text-sage-800' : 'bg-white border-line text-ink-muted'}`}>
                     {n.title}
+                    {n.requires_gpu && <span className="ml-1.5 opacity-60">GPU</span>}
                   </button>
                 ))}
               </div>

@@ -96,17 +96,20 @@ def multipart(fields: dict[str, str], files: list[tuple[str, str, bytes]]):
 
 
 def build_bundle() -> bytes:
-    """Zip the reference Streamlit app exactly as an intern would submit it."""
-    keep_root = {"app.py", "requirements.txt"}
+    """Zip the app exactly as notebook 5 assembles it: the Streamlit file, the
+    shared kit it imports, the checkpoint, and the evaluation report."""
+    app_dir = TEMPLATE.parent / "corrosion_app"
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name in sorted(keep_root):
-            zf.write(TEMPLATE / name, name)
-        for py in sorted((TEMPLATE / "corrosion").glob("*.py")):
-            zf.write(py, f"corrosion/{py.name}")
-        ckpt = TEMPLATE / "runs" / "verify" / "best.pt"
-        if ckpt.exists():
-            zf.write(ckpt, "model/best.pt")
+        zf.write(app_dir / "app.py", "app.py")
+        zf.write(app_dir / "requirements.txt", "requirements.txt")
+        zf.write(TEMPLATE / "corrosion_kit.py", "corrosion_kit.py")
+        run_dir = TEMPLATE / "runs" / "verify"
+        if (run_dir / "best.pt").exists():
+            zf.write(run_dir / "best.pt", "best.pt")
+        for extra in ("report.json", "history.csv"):
+            if (run_dir / extra).exists():
+                zf.write(run_dir / extra, extra)
     return out.getvalue()
 
 
@@ -125,32 +128,63 @@ def main() -> int:
           f"{topic.get('lesson_count')} lessons")
     topic_id = topic["id"]
 
-    # ---------------------------------------------------------- 2. notebook
+    # ------------------------------------------------------- 2. the notebooks
+    # The playground is the whole pipeline, one notebook per stage. An intern
+    # who wants to look at a prediction must not have to re-run training.
     status, nbs = call("/api/notebooks?topic_id=%d" % topic_id, token)
-    check("topic has its own notebook", status == 200 and len(nbs) == 1, str(status))
-    nb_id = nbs[0]["id"]
+    served = [nb for nb in nbs if nb["slug"].startswith("corrosion-")
+              and not nb["slug"].endswith("playground")]
+    expected = ["corrosion-1-eda", "corrosion-2-training", "corrosion-3-evaluation",
+                "corrosion-4-inference", "corrosion-5-deployment"]
+    check("topic serves the five-stage pipeline",
+          status == 200 and [nb["slug"] for nb in served] == expected,
+          ", ".join(nb["slug"] for nb in served))
+    check("only the training stage demands a GPU",
+          [nb["slug"] for nb in served if nb["requires_gpu"]] == ["corrosion-2-training"],
+          ", ".join(nb["slug"] for nb in served if nb["requires_gpu"]) or "none")
 
-    status, nb = call(f"/api/notebooks/{nb_id}", token)
-    cells = nb.get("content", {}).get("cells", [])
-    code = [c for c in cells if c["cell_type"] == "code"]
-    source = "\n".join(
-        "".join(c["source"]) if isinstance(c["source"], list) else c["source"] for c in code)
-    check("notebook served with full cell set", status == 200 and len(cells) >= 24,
-          f"{len(cells)} cells, {len(code)} code")
+    sources: dict[str, str] = {}
+    for notebook in served:
+        status, nb = call(f"/api/notebooks/{notebook['id']}", token)
+        cells = nb.get("content", {}).get("cells", [])
+        code = [c for c in cells if c["cell_type"] == "code"]
+        sources[notebook["slug"]] = "\n".join(
+            "".join(c["source"]) if isinstance(c["source"], list) else c["source"] for c in code)
+        check(f"{notebook['slug']} served with its cells",
+              status == 200 and len(cells) >= 10, f"{len(cells)} cells, {len(code)} code")
 
-    # the U-Net must be defined IN the notebook, not imported from a package
-    check("U-Net is written inside the notebook",
-          "class UNet" in source and "nn.ConvTranspose2d" in source or "class UNet" in source,
-          "class UNet found" if "class UNet" in source else "MISSING")
-    check("no dependency on the corrosion package",
-          "from corrosion" not in source and "import corrosion" not in source,
-          "self-contained")
+    every = "\n".join(sources.values())
+    # Each notebook carries the library rather than importing one from the
+    # platform, so it runs unchanged on a Colab that cannot reach this server.
+    check("every notebook carries the shared library",
+          all("KIT_SOURCE" in src and "class UNet" in src for src in sources.values()),
+          "corrosion_kit embedded in all five")
+    check("no dependency on an ATLAS-side package",
+          "from app." not in every and "import app." not in every, "self-contained")
+    check("runs without the injected bridge",
+          all('if "atlas" not in dir():' in src for src in sources.values()),
+          "each bootstrap supplies a stand-in")
     check("dataset layout is images/ + masks/",
-          'rglob("images")' in source and '"masks"' in source, "matches the export")
-    check("training loop present", "loss.backward()" in source and "optim" in source.lower())
+          'IMAGE_DIRS' in every and '"masks"' in every, "matches the export")
+    check("training loop present",
+          "loss.backward()" in sources["corrosion-2-training"]
+          and "optim" in sources["corrosion-2-training"].lower())
+    check("training resumes instead of restarting",
+          "resuming from epoch" in sources["corrosion-2-training"]
+          and "save_checkpoint" in sources["corrosion-2-training"],
+          "checkpoint + resume")
+    check("checkpoints survive a Colab disconnect",
+          "drive.mount" in sources["corrosion-2-training"]
+          and "TIME_BUDGET_MIN" in sources["corrosion-2-training"],
+          "Drive + time budget")
     check("evaluation present",
-          "mean_iou" in source and "pixel_acc" in source and "ConfusionMatrix" in source)
-    check("checkpoint export present", "corrosion_unet_best.pt" in source)
+          "mean_iou" in sources["corrosion-3-evaluation"]
+          and "ConfusionMatrix" in sources["corrosion-3-evaluation"])
+    check("inference produces confidence",
+          "mean_confidence" in sources["corrosion-4-inference"])
+    check("deployment builds the app bundle",
+          "APP_SOURCE" in sources["corrosion-5-deployment"]
+          and "best.pt" in sources["corrosion-5-deployment"])
 
     # ---------------------------------------------------------- 3. lessons
     status, detail = call("/api/topics/corrosion-segmentation", token)

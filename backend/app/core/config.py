@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # freshly deployed (or just stopped) app is reachable almost immediately
     # while a burst of asset requests still hits the cache.
     deploy_route_ttl_seconds: float = 2.0
+    # local_process only: let a deployed app see the platform's own packages.
+    # A computer-vision bundle pulls ~2.5 GB of torch into every deployment
+    # otherwise, which a teaching laptop does not have to spare, and every
+    # deploy then waits ten minutes on a download it already has on disk.
+    # Turn it off for a stricter, fully isolated environment per app.
+    deploy_system_site_packages: bool = True
     coolify_base_url: str = ""
     coolify_token: str = ""
     coolify_project_uuid: str = ""
