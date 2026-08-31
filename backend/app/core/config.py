@@ -46,6 +46,28 @@ class Settings(BaseSettings):
     coolify_project_uuid: str = ""
     coolify_server_uuid: str = ""
 
+    # reverse proxy (nginx) automation.
+    # Every deployed app automatically gets its own nginx snippet that serves it
+    # as a virtual directory, so nginx needs no manual edits and other apps are
+    # never touched. By default snippets + a ready-to-use vhost are written under
+    # the persistent storage dir; point these at a live nginx path to make the
+    # reload fully automatic (operator opt-in, never touches system nginx out of
+    # the box).
+    # Directory that holds one managed <location> file per app:
+    nginx_conf_dir: str = ""
+    # Optional path for a full standalone vhost (leave empty to keep it in storage):
+    nginx_vhost_file: str = ""
+    # Command that reloads nginx after the snippets change. Empty = auto-detect
+    # (`nginx -s reload`). Override for dockerised/privileged setups, e.g.
+    # "sudo nginx -s reload" or "docker exec atlas-proxy nginx -s reload".
+    nginx_reload_cmd: str = ""
+    # Reload nginx automatically after a successful `nginx -t`. Set false to only
+    # write the files and let an operator reload.
+    nginx_auto_reload: bool = True
+    # Where the portal/UI itself is reached, for the fallback vhost that routes
+    # everything that is NOT an /app/<slug> virtual directory.
+    nginx_upstream: str = "http://127.0.0.1:8000"
+
     # google oauth
     google_client_id: str = ""
     google_client_secret: str = ""
@@ -76,7 +98,8 @@ class Settings(BaseSettings):
         return f"sqlite:///{self.storage_dir / 'atlas.db'}"
 
     def ensure_dirs(self) -> None:
-        for sub in ("datasets", "decks", "notebooks", "deployments", "artifacts", "runs"):
+        for sub in ("datasets", "decks", "notebooks", "deployments", "artifacts",
+                    "runs", "appdata", "nginx"):
             (self.storage_dir / sub).mkdir(parents=True, exist_ok=True)
 
 

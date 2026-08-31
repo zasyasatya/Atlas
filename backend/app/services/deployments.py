@@ -62,21 +62,9 @@ STREAMLIT_CMD = ('["streamlit", "run", "{entry}", "--server.port={port}", '
 GRADIO_CMD = '["python", "{entry}"]'
 GRADIO_ROOT_PATH_ENV = "GRADIO_ROOT_PATH"
 
-NGINX_HEADER = """# ATLAS reverse-proxy config for deployed apps
-#
-# Every app runs on an internal port and is served under a path on the main
-# domain - https://<domain>/app/<slug> - so the cohort needs only ONE public
-# domain/port (80/443) and a single nginx. Drop the <location> blocks below
-# into your server{{}} block and reload nginx.
-#
-# Generated: {generated}
-"""
-
-NGINX_FOOTER = """# You can also generate this on demand from the UI:
-#   Portal -> "Proxy config"
-# or fetch it directly:
-#   GET /api/deployments/proxy-config  (Bearer token, admin/supervisor)
-"""
+# NOTE: nginx virtual-directory config is generated and reloaded automatically
+# by app.services.proxy. Per-app <location> snippets + a full vhost are written
+# under storage/nginx (or ATLAS_NGINX_CONF_DIR) on every deploy/stop/delete.
 
 BASE_REQS = {
     AppFramework.STREAMLIT: "streamlit>=1.36\npandas>=2.0\nnumpy>=1.26\nscikit-learn>=1.4\nopenpyxl>=3.1\nplotly>=5.20\n",
@@ -120,6 +108,70 @@ def base_url_path(slug: str) -> str:
     return f"{prefix}/{slug}".strip("/")
 
 
+def app_data_dir(deployment: Deployment) -> Path:
+    """Per-app PERSISTENT, ISOLATED data directory.
+
+    Each deployed app gets its own folder under ``storage/appdata/``, separate
+    from the bundle (``storage/deployments/...``). Because it lives outside the
+    bundle, it:
+
+      * survives bundle re-uploads and redeployments (a redeploy wipes and
+        re-unpacks the bundle directory, but never this data folder);
+      * is isolated per app, so one cohort app can never read or overwrite
+        another's files, caches or databases;
+      * sits on the same persistent volume mounted at ``/app/storage`` (Docker)
+        or ``./data`` (compose), so it is backed up together with the platform.
+
+    The path is keyed by deployment id + slug and is stable across restarts.
+    """
+    safe = re.sub(r"[^a-z0-9]+", "-", deployment.slug.lower()).strip("-") or "app"
+    root = settings.storage_dir / "appdata" / f"{deployment.id or 0}_{safe}"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _app_runtime_env(deployment: Deployment, port: int, base_path: str) -> dict:
+    """Environment that pins an app's writes/caches to its own data directory.
+
+    Data is fully isolated per app: every well-known cache/config/temp location
+    points inside the app's dedicated persistent folder instead of a shared
+    (or container-ephemeral) location.
+    """
+    data = app_data_dir(deployment)
+    home = data / "home"
+    cache = data / "cache"
+    config = data / "config"
+    tmp = data / "tmp"
+    for d in (home, cache, config, tmp):
+        d.mkdir(parents=True, exist_ok=True)
+
+    env = {
+        # Dedicated, persistent data dir - apps are told where to store data.
+        "ATLAS_APP_DATA_DIR": str(data),
+        "APP_DATA_DIR": str(data),
+        # Keep every per-user cache/config inside the isolated folder (XDG).
+        "HOME": str(home),
+        "XDG_CACHE_HOME": str(cache),
+        "XDG_CONFIG_HOME": str(config),
+        "XDG_DATA_HOME": str(data / "xdg-data"),
+        "TMPDIR": str(tmp),
+        # Common ML / plotting libraries honour these cache locations.
+        "GRADIO_TEMP_DIR": str(tmp),
+        "HF_HOME": str(cache / "huggingface"),
+        "TORCH_HOME": str(cache / "torch"),
+        "MPLCONFIGDIR": str(config / "matplotlib"),
+        # The app binds localhost; it is reached via the virtual directory.
+        "GRADIO_SERVER_NAME": "0.0.0.0",
+        "GRADIO_SERVER_PORT": str(port),
+        "PYTHONUNBUFFERED": "1",
+    }
+    for name in ("XDG_DATA_HOME", "HF_HOME", "TORCH_HOME"):
+        Path(env[name]).mkdir(parents=True, exist_ok=True)
+    if deployment.framework == AppFramework.GRADIO:
+        env[GRADIO_ROOT_PATH_ENV] = f"/{base_path}"
+    return env
+
+
 def ensure_scaffold(root: Path, framework: AppFramework, entrypoint: str,
                     port: int, base_path: str) -> str:
     """Guarantee requirements.txt + Dockerfile exist. Returns the Dockerfile text."""
@@ -155,7 +207,21 @@ def ensure_scaffold(root: Path, framework: AppFramework, entrypoint: str,
 {root_path_env}    environment:
       - GRADIO_SERVER_NAME=0.0.0.0
       - GRADIO_SERVER_PORT={port}
+      # All writes/caches are pinned to one isolated, persistent data volume.
+      - ATLAS_APP_DATA_DIR=/data
+      - APP_DATA_DIR=/data
+      - XDG_CACHE_HOME=/data/cache
+      - XDG_CONFIG_HOME=/data/config
+      - HF_HOME=/data/cache/huggingface
+      - TORCH_HOME=/data/cache/torch
+      - MPLCONFIGDIR=/data/config/matplotlib
+      - TMPDIR=/data/tmp
+    volumes:
+      - app-data:/data
     restart: unless-stopped
+
+volumes:
+  app-data:
 """
     (root / "docker-compose.yml").write_text(compose)
     return dockerfile
@@ -207,33 +273,6 @@ def running_routes(session: Session) -> list[dict]:
             "url": d.url or "",
         })
     return sorted(out, key=lambda r: r["path"])
-
-
-def nginx_conf(routes: list[dict]) -> str:
-    """An nginx server block routing /app/<slug> to each app's internal port."""
-    blocks = []
-    for r in routes:
-        blocks.append(
-            f"    # {r['name']} ({r['framework']})\n"
-            f"    # bare path redirects to the trailing-slash app URL\n"
-            f"    location = /{r['path']} {{ return 301 /{r['path']}/; }}\n"
-            f"    location /{r['path']}/ {{\n"
-            f"        proxy_pass http://127.0.0.1:{r['port']}/{r['path']}/;\n"
-            f"        proxy_http_version 1.1;\n"
-            f"        proxy_set_header Upgrade $http_upgrade;\n"
-            f"        proxy_set_header Connection \"upgrade\";\n"
-            f"        proxy_set_header Host $host;\n"
-            f"        proxy_set_header X-Real-IP $remote_addr;\n"
-            f"        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
-            f"        proxy_set_header X-Forwarded-Proto $scheme;\n"
-            f"        proxy_read_timeout 3600s;\n"
-            f"        proxy_buffering off;\n"
-            f"    }}\n"
-            f"\n")
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    body = "".join(blocks) if blocks else \
-        "    # No running deployments yet.\n\n"
-    return NGINX_HEADER.format(generated=generated) + body + NGINX_FOOTER
 
 
 def deploy(session: Session, deployment: Deployment, *, task_type: str = "classification") -> Deployment:
@@ -315,15 +354,18 @@ def _deploy_local(deployment: Deployment, root: Path, port: int, logs: list[str]
         return deployment
 
     base_path = base_url_path(deployment.slug)
-    env = dict(os.environ, GRADIO_SERVER_NAME="0.0.0.0", GRADIO_SERVER_PORT=str(port),
-               PYTHONUNBUFFERED="1")
+    # Every cache/config/temp path is pinned inside this app's own persistent
+    # data folder, so apps cannot see each other's data and nothing is lost on
+    # redeploy.
+    env = dict(os.environ, **_app_runtime_env(deployment, port, base_path))
+    data_dir = app_data_dir(deployment)
+    logs.append(f"[run] isolated persistent data dir: {data_dir}")
     if deployment.framework == AppFramework.STREAMLIT:
         cmd = [str(py), "-m", "streamlit", "run", deployment.entrypoint,
                f"--server.port={port}", "--server.address=0.0.0.0",
                f"--server.baseUrlPath={base_path}",
                "--server.headless=true", "--browser.gatherUsageStats=false"]
     else:
-        env[GRADIO_ROOT_PATH_ENV] = f"/{base_path}"
         cmd = [str(py), deployment.entrypoint]
 
     if not _wait_for_port(port):

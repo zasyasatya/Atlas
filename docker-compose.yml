@@ -30,6 +30,15 @@ services:
       ATLAS_COOLIFY_TOKEN: ${ATLAS_COOLIFY_TOKEN:-}
       ATLAS_COOLIFY_PROJECT_UUID: ${ATLAS_COOLIFY_PROJECT_UUID:-}
       ATLAS_COOLIFY_SERVER_UUID: ${ATLAS_COOLIFY_SERVER_UUID:-}
+      # --- reverse proxy (nginx) automation --------------------------------
+      # Blank by default: ATLAS generates per-app nginx snippets + an
+      # installable atlas.conf under ./data/nginx and serves each app as a
+      # virtual directory. Set these to reload a live nginx automatically.
+      ATLAS_NGINX_CONF_DIR: ${ATLAS_NGINX_CONF_DIR:-}
+      ATLAS_NGINX_VHOST_FILE: ${ATLAS_NGINX_VHOST_FILE:-}
+      ATLAS_NGINX_RELOAD_CMD: ${ATLAS_NGINX_RELOAD_CMD:-}
+      ATLAS_NGINX_AUTO_RELOAD: ${ATLAS_NGINX_AUTO_RELOAD:-true}
+      ATLAS_NGINX_UPSTREAM: ${ATLAS_NGINX_UPSTREAM:-http://127.0.0.1:8000}
       # --- Google SSO -------------------------------------------------------
       ATLAS_GOOGLE_CLIENT_ID: ${ATLAS_GOOGLE_CLIENT_ID:-}
       ATLAS_GOOGLE_CLIENT_SECRET: ${ATLAS_GOOGLE_CLIENT_SECRET:-}
