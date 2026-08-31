@@ -179,7 +179,7 @@ upload bundle
    → ensure requirements.txt (framework baseline merged in if absent)
    → generate Dockerfile + docker-compose.yml + .dockerignore
    → driver:
-       local_process → venv, pip install, spawn on allocated port (start_new_session)
+       local_process → venv, pip install, spawn on allocated internal port (start_new_session)
        coolify       → POST /api/v1/applications/dockercompose
        manifest      → stop here
    → re-run rubric → publish to portal
@@ -187,6 +187,15 @@ upload bundle
 
 Ports are allocated from a configurable range and tracked on the deployment row. Processes are
 spawned in their own session group so `stop` can terminate the whole tree.
+
+**Virtual-directory routing (no per-app public ports).** The internal port is only ever bound on
+`127.0.0.1`. Each app is configured with a base URL path on the main domain — Streamlit via
+`--server.baseUrlPath`, Gradio via `GRADIO_ROOT_PATH` — so the public URL is
+`https://<domain>/app/<slug>` rather than a separate port/subdomain. A VPS therefore needs only one
+public domain on ports 80/443. ATLAS generates the nginx `location` blocks
+(`GET /api/deployments/proxy-config`, or the Portal "Proxy config" button) that route each
+`/app/<slug>` to `127.0.0.1:<internal_port>`; the prefix defaults to `app`
+(`ATLAS_DEPLOY_URL_PREFIX`).
 
 The generated Dockerfile is the same artifact regardless of driver — what runs locally is what
 Coolify builds, which removes the classic "works on the demo server" gap.

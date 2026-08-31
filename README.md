@@ -99,6 +99,15 @@ readiness score with fix hints. Verified: both starter templates score 100%, a F
 **One-click deployment** — Upload a zip, press deploy. ATLAS generates a Dockerfile, launches the
 app, re-runs the rubric, and publishes it to the App Portal automatically.
 
+**No per-app ports — apps live under virtual directories.** Deployed apps are
+not separate public services. Each runs on an internal port and is served as a
+path on the main domain — `https://yourdomain.com/app/<slug>` — so a whole
+cohort shares one domain and one reverse proxy. On the Portal, operators press
+**Proxy config** (or `GET /api/deployments/proxy-config`) to get the nginx
+`location` blocks that route `/app/<slug>` to each app; those blocks are all
+that a VPS needs to expose the entire cohort on ports 80/443. The path prefix
+defaults to `app` and can be changed with `ATLAS_DEPLOY_URL_PREFIX`.
+
 ---
 
 ## Architecture

@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     deploy_driver: str = "local_process"  # local_process | coolify | manifest
     deploy_port_start: int = 8600
     deploy_port_end: int = 8620
+    # Deployed apps are served under this path on the main domain (a virtual
+    # directory) instead of exposing a separate port per app. e.g. prefix "app"
+    # + slug "my-app" -> https://<domain>/app/my-app
+    deploy_url_prefix: str = "app"
     coolify_base_url: str = ""
     coolify_token: str = ""
     coolify_project_uuid: str = ""

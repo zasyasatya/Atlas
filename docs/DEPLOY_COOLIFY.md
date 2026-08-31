@@ -174,5 +174,10 @@ reachable. Colab cannot call `localhost`. Check the value on the Settings page.
 
 **Data disappears after redeploy** — the `/app/storage` volume is missing. Add it in Storages.
 
-**Intern apps fail to start** — with `local_process`, ports 8600–8620 must be free inside the
-container. For anything beyond a demo, switch to `ATLAS_DEPLOY_DRIVER=coolify`.
+**Intern apps fail to start** — with `local_process`, the internal ports 8600–8620 must be free
+inside the container. Those ports are never exposed publicly: each app is served under a virtual
+directory on the main domain (`https://<domain>/app/<slug>`) and nginx routes `/app/<slug>` to the
+internal port. After apps are running, open the Portal → **Proxy config** (or
+`GET /api/deployments/proxy-config`) and drop the generated `location` blocks into your nginx
+`server{}` block so the whole cohort is reachable on ports 80/443. The path prefix defaults to
+`app` (`ATLAS_DEPLOY_URL_PREFIX`).
