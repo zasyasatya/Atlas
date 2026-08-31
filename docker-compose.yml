@@ -10,6 +10,10 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # --- branding (change these to rebrand; no rebuild needed) ------------
+      ATLAS_APP_NAME: ${ATLAS_APP_NAME:-ATLAS}
+      ATLAS_APP_TAGLINE: ${ATLAS_APP_TAGLINE:-Applied AI & Data Research Platform}
+      ATLAS_APP_TAGLINE_SHORT: ${ATLAS_APP_TAGLINE_SHORT:-Applied AI Platform}
       # --- core -------------------------------------------------------------
       ATLAS_ENVIRONMENT: production
       ATLAS_SECRET_KEY: ${ATLAS_SECRET_KEY:-change-me-to-a-long-random-string}
@@ -30,10 +34,16 @@ services:
       ATLAS_COOLIFY_TOKEN: ${ATLAS_COOLIFY_TOKEN:-}
       ATLAS_COOLIFY_PROJECT_UUID: ${ATLAS_COOLIFY_PROJECT_UUID:-}
       ATLAS_COOLIFY_SERVER_UUID: ${ATLAS_COOLIFY_SERVER_UUID:-}
-      # --- reverse proxy (nginx) automation --------------------------------
-      # Blank by default: ATLAS generates per-app nginx snippets + an
-      # installable atlas.conf under ./data/nginx and serves each app as a
-      # virtual directory. Set these to reload a live nginx automatically.
+      # --- app routing ------------------------------------------------------
+      # ATLAS proxies /app/<slug>/ to the app's internal port, HTTP + WebSocket,
+      # so the port mapping above is all the container needs: no nginx required,
+      # nothing to install after a deploy.
+      ATLAS_DEPLOY_BUILTIN_PROXY: ${ATLAS_DEPLOY_BUILTIN_PROXY:-true}
+      ATLAS_DEPLOY_URL_PREFIX: ${ATLAS_DEPLOY_URL_PREFIX:-app}
+      # --- reverse proxy (nginx) - optional, only to sit in front of ATLAS --
+      # Blank by default: snippets + an installable atlas.conf are generated under
+      # ./data/nginx. Set these to write and reload a live nginx automatically.
+      ATLAS_NGINX_AUTO_INSTALL: ${ATLAS_NGINX_AUTO_INSTALL:-false}
       ATLAS_NGINX_CONF_DIR: ${ATLAS_NGINX_CONF_DIR:-}
       ATLAS_NGINX_VHOST_FILE: ${ATLAS_NGINX_VHOST_FILE:-}
       ATLAS_NGINX_RELOAD_CMD: ${ATLAS_NGINX_RELOAD_CMD:-}

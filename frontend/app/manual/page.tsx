@@ -3,6 +3,7 @@ import Link from 'next/link';
 import React from 'react';
 import { api } from '@/lib/api';
 import { Logo } from '../components/Shell';
+import { useBrand } from '@/lib/brand';
 import {
   IcApps, IcArrowLeft, IcBook, IcCode, IcDatabase, IcFlask, IcGrid, IcRocket,
   IcSettings, IcTrophy, IcUsers, IcX,
@@ -176,6 +177,7 @@ const M = ({ children }: { children: React.ReactNode }) => (
 /* ------------------------------------------------------------------ */
 
 export default function Manual() {
+  const brand = useBrand();
   const [active, setActive] = React.useState('signin');
   const [zoom, setZoom] = React.useState<{ src: string; cap: string } | null>(null);
   const [navOpen, setNavOpen] = React.useState(false);
@@ -819,6 +821,12 @@ export default function Manual() {
               <strong>One-click deploy</strong> builds and launches your app, then re-runs the
               rubric against the live version. A cold deploy takes roughly 30 seconds.
             </Step>
+            <Step n={5} title="Open it">
+              The app is reachable at <M>/app/&lt;your-slug&gt;</M> on the same address as the
+              portal — no port number, nothing to install, no proxy to configure. Publish the link
+              as-is. If it says <strong>Starting up</strong>, the app is still installing its
+              dependencies; that page reloads itself and becomes your app.
+            </Step>
 
             <p>
               Need the container recipe? <strong>Dockerfile</strong> downloads the exact file ATLAS
@@ -842,6 +850,20 @@ export default function Manual() {
               published; when it is stopped the entry stays, marked accordingly, so the record of
               what was built survives the app being switched off.
             </p>
+            <p>
+              Every card shows the app&rsquo;s path so a link can be copied straight from it. On the
+              right of the header, <strong>App routing</strong> answers the two questions that are
+              easy to confuse: is the path served (it is — the platform proxies each app&rsquo;s
+              virtual directory to its internal process), and is the app itself answering on its
+              port? A deploy that &ldquo;succeeded&rdquo; while still importing torch is exactly the
+              case a screenshot cannot show.
+            </p>
+            <Note kind="info" title="nginx is optional, and stays optional">
+              A reverse proxy in front is only needed for TLS, rate limiting, or serving the
+              interface from somewhere else. <strong>App routing</strong> shows the generated nginx
+              config for that case: one managed block per app, written on every deploy and reload,
+              never overwriting a file it does not own.
+            </Note>
           </Section>
 
           {/* ============ 10 PROGRESS ============ */}
@@ -977,6 +999,26 @@ export default function Manual() {
                 a: <p>Run on another port: <M>python run.py --port 8080</M></p>,
               },
               {
+                q: 'My app page says &ldquo;Starting up&rdquo;',
+                a: <p>
+                  The path is routed and nothing is answering yet: a cold deploy creates a
+                  virtualenv and installs dependencies, which takes a minute or two (longer for a
+                  model), and the page retries on its own. If it never becomes your app, open
+                  <strong> Deployment &rarr; build logs</strong> — a process that exited on import
+                  is reported there, not here.
+                </p>,
+              },
+              {
+                q: 'An app link opens the portal instead of the app',
+                a: <p>
+                  That link was stored before the app path was routed by the platform itself.
+                  Re-deploy (or press <strong>Re-sync routing</strong> in
+                  <strong> App routing</strong>) and use the path on the card:
+                  <M>/app/&lt;slug&gt;/</M> with the trailing slash, which is the form the app was
+                  launched to serve.
+                </p>,
+              },
+              {
                 q: 'My Colab run never reports back',
                 a: <p><M>ATLAS_PUBLIC_BASE_URL</M> must be an address the Colab machine can actually reach. A <M>localhost</M> value works only when you run the notebook on the same machine.</p>,
               },
@@ -1043,7 +1085,7 @@ export default function Manual() {
               </Link>
             </div>
             <p className="mt-6 text-[12.5px] text-ink-faint">
-              ATLAS — AI Internship Operating System · Manual v1.0 · every screenshot captured from
+              {brand.name} — {brand.tagline} · Manual v1.0 · every screenshot captured from
               the running application.
             </p>
           </div>

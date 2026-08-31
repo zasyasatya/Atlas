@@ -5,6 +5,7 @@ import React from 'react';
 import { api, auth, storageIsEphemeral } from '@/lib/api';
 import { Button, Field, Input, useToast } from '../components/UI';
 import { Logo } from '../components/Shell';
+import { useBrand } from '@/lib/brand';
 import { IcArrowRight, IcBook, IcLock } from '../components/Icons';
 
 type DemoAccount = { email: string; password: string; role: string; name?: string };
@@ -23,6 +24,7 @@ const ROLE_NOTE: Record<string, string> = {
 };
 
 export default function Login() {
+  const brand = useBrand();
   const router = useRouter();
   const { show, node } = useToast();
   const [email, setEmail] = React.useState('');
@@ -128,8 +130,8 @@ export default function Login() {
           <div className="flex items-center gap-2.5 mb-9">
             <Logo size={34} />
             <div>
-              <div className="font-extrabold text-[17px] tracking-[-0.02em] leading-none">ATLAS</div>
-              <div className="text-[10px] text-ink-faint mt-1 tracking-wide">AI INTERNSHIP OS</div>
+              <div className="font-extrabold text-[17px] tracking-[-0.02em] leading-none">{brand.name}</div>
+              <div className="text-[10px] text-ink-faint mt-1 tracking-wide uppercase">{brand.label}</div>
             </div>
           </div>
 
@@ -138,13 +140,13 @@ export default function Login() {
             Welcome back
           </h1>
           <p className="text-[15px] text-ink-soft mb-7 leading-relaxed">
-            Learn the architecture, train on borrowed GPUs, ship the app.
+            {brand.subtitle}
           </p>
 
           {ephemeral && (
             <div className="mb-4 rounded-xl border border-signal-warn/30 bg-signal-warn/10 px-3.5 py-2.5 text-[12.5px] text-ink-soft leading-relaxed">
               Your browser is blocking site storage, so this session will end when
-              you reload. Open ATLAS in a normal browser tab to stay signed in.
+              you reload. Open {brand.name} in a normal browser tab to stay signed in.
             </div>
           )}
           <form onSubmit={submit} method="post" action="#" className="space-y-4">

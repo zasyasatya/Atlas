@@ -34,7 +34,7 @@ export default function Dashboard() {
       <PageHeader
         eyebrow={`${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}`}
         title={`Hi, ${(user?.full_name || '').split(' ')[0]}`}
-        subtitle="Your internship control room: curriculum progress, compute runs, and every app shipped by the cohort."
+        subtitle="Your control room: curriculum progress, compute runs, and every app shipped on this platform."
         actions={
           <>
             <Link href="/playground"><Button variant="outline" icon={<IcFlask size={15} />}>Playground</Button></Link>

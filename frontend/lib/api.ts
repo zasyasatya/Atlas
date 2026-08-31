@@ -5,6 +5,46 @@
 // from the backend (e.g. static files on a CDN, API on another domain).
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || '').replace(/\/$/, '');
 
+/**
+ * Absolute URL for a stored app link.
+ *
+ * The backend keeps deployed-app URLs origin-relative (`/app/my-app/`) so one
+ * stored row is correct on a real domain, a LAN IP, `localhost:8000` or a
+ * port-addressed sandbox preview. In a split setup - `next dev` on :3000 with the
+ * API on :8000 - that relative link would resolve against the dev server, which
+ * does not proxy app paths, so it is prefixed here: the one place that knows both
+ * origins.
+ */
+export function appHref(url?: string | null): string {
+  if (!url) return '';
+  return url.startsWith('/') ? `${API_BASE}${url}` : url;
+}
+
+/** One deployed app, probed on its internal port (bypassing every proxy). */
+export interface RouteCheck {
+  slug: string;
+  path: string;
+  live: boolean;
+  detail?: string;
+  status_code?: number;
+  checked?: string;
+}
+
+/** GET /api/deployments/proxy-status - how app paths are served. */
+export interface RoutingStatus {
+  serving_mode: string;
+  nginx_present: boolean;
+  auto_install: boolean;
+  installed_at: string | null;
+  conf_dir: string;
+  vhost: string;
+  managed_snippets: number;
+  builtin: { enabled: boolean; prefix: string; pattern: string; note: string };
+  checks: RouteCheck[];
+  live: number;
+  expected: number;
+}
+
 const TOKEN_KEY = 'atlas_token';
 const USER_KEY = 'atlas_user';
 

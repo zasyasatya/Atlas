@@ -36,6 +36,39 @@ MIN_PY = (3, 10)
 
 IS_WIN = os.name == "nt"
 G, Y, R, B, DIM, RESET = "\033[32m", "\033[33m", "\033[31m", "\033[34m", "\033[2m", "\033[0m"
+
+# Fallback identity for the banner, kept in sync with the app's own settings.
+BRAND_DEFAULTS = {
+    "ATLAS_APP_NAME": "ATLAS",
+    "ATLAS_APP_TAGLINE": "Applied AI & Data Research Platform",
+}
+
+
+def brand() -> str:
+    """The launcher's title line, taken from the deployment's own configuration.
+
+    run.py cannot import ``app.core.config`` - it runs before the virtualenv that
+    provides pydantic exists - so the two brand keys are read here from .env and
+    the environment instead. That keeps "python run.py" honest on a white-labelled
+    install; tests/branding.py fails if the fallbacks drift from the server's.
+    """
+    values = dict(BRAND_DEFAULTS)
+    env_path = ROOT / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line.startswith("ATLAS_APP_") or "=" not in line:
+                continue
+            key, _, raw = line.partition("=")
+            # An inline comment is not part of the value, and quotes are not either.
+            raw = raw.split("#")[0].strip().strip('"').strip("'")
+            if raw:
+                values[key.strip()] = raw
+    for key in list(values):
+        override = os.environ.get(key, "").strip()
+        if override:
+            values[key] = override
+    return f"{values['ATLAS_APP_NAME']} - {values['ATLAS_APP_TAGLINE']}"
 if IS_WIN and not os.environ.get("WT_SESSION"):
     G = Y = R = B = DIM = RESET = ""  # legacy consoles render escapes literally
 
@@ -394,7 +427,7 @@ def main() -> None:
         return
 
     say("=" * 62, B)
-    say("  ATLAS - AI Internship Operating System", B)
+    say("  " + brand(), B)
     say("=" * 62, B)
 
     total = 3 if args.backend_only else 4

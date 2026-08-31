@@ -103,9 +103,14 @@ def unpack_bundle(deployment: Deployment, data: bytes, filename: str) -> Path:
 
 
 def base_url_path(slug: str) -> str:
-    """The virtual-directory path segment for an app, e.g. "app/my-app"."""
-    prefix = (settings.deploy_url_prefix or "app").strip("/")
-    return f"{prefix}/{slug}".strip("/")
+    """The virtual-directory path segment for an app, e.g. "app/my-app".
+
+    Goes through ``settings.deploy_prefix`` rather than reading the raw setting, so
+    the path the app is launched with, the nginx block, and the portal's links can
+    never disagree about the prefix (a reserved value like "api" is normalised to
+    "app" in one place).
+    """
+    return f"{settings.deploy_prefix}/{slug}".strip("/")
 
 
 def app_data_dir(deployment: Deployment) -> Path:
@@ -238,22 +243,27 @@ def _allocate_port(session: Session) -> int:
 def _public_url(port: int, slug: str) -> str:
     """Public URL for a deployed app: a virtual directory on the main domain.
 
-    The app is NOT a separate port/service - it lives under /app/<slug>/ on the
-    main domain and nginx routes that path to the internal port. The trailing
-    slash is deliberate: the proxy `location /app/<slug>/` only matches with it.
-    In the sandbox preview (e2b) the environment is port-addressed, so the path
-    is appended to the per-port subdomain instead.
+    The app is NOT a separate port/service - it lives under ``/<prefix>/<slug>/``
+    on the main domain. The trailing slash is deliberate: both the built-in proxy
+    and the generated nginx `location` block only match the slashed form, and the
+    app was launched with that exact base path for its asset URLs.
+
+    The link is stored **origin-relative** (`/app/my-app/`) unless
+    `ATLAS_PUBLIC_BASE_URL` is set. That is what makes a deploy work everywhere at
+    once: the browser resolves it against whatever host the portal is open on -
+    a domain, a LAN IP, `localhost:8000`, a port-addressed sandbox preview - so a
+    stored URL never goes stale when the host changes, and no per-app port is ever
+    handed out. `port` is only used for the one case that genuinely needs it: the
+    built-in proxy is off and no base URL is configured, so the app's own port is
+    the only thing that can answer.
     """
     path = base_url_path(slug)
-    base = settings.public_base_url
-    if base and ".e2b.app" in base:
-        host = base.split("://", 1)[-1]
-        parts = host.split("-", 1)
-        if len(parts) == 2:
-            return f"https://{port}-{parts[1]}/{path}/"
+    base = (settings.public_base_url or "").strip().rstrip("/")
     if base:
-        return f"{base.rstrip('/')}/{path}/"
-    return f"http://localhost:{port}/{path}/"
+        return f"{base}/{path}/"
+    if not settings.deploy_builtin_proxy:
+        return f"http://localhost:{port}/{path}/"
+    return f"/{path}/"
 
 
 def running_routes(session: Session) -> list[dict]:

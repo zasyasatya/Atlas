@@ -1,7 +1,7 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
 import React, { Suspense } from 'react';
-import { api, auth, Deployment, fmtDate, Topic } from '@/lib/api';
+import { api, appHref, auth, Deployment, fmtDate, Topic } from '@/lib/api';
 import { Page, PageHeader, Shell } from '../components/Shell';
 import {
   Badge, Button, Card, Empty, Field, Input, Modal, Progress, Select, Skeleton, StatusDot, useToast,
@@ -85,7 +85,7 @@ function RubricCard({ rubric }: { rubric: any[] }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-[14px] font-bold text-ink">Graduation requirements</div>
-          <div className="text-[12.5px] text-ink-muted">Five checks every internship web app must pass.</div>
+          <div className="text-[12.5px] text-ink-muted">Five checks every app must pass before it is ready to ship.</div>
         </div>
         <span className="text-[12px] font-bold text-sage-700">{open ? 'Hide' : 'Show'}</span>
       </button>
@@ -160,7 +160,7 @@ function DeploymentCard({ dep, topics, busy, onAction, onReload, onDelete, show 
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {dep.url && (
-              <a href={dep.url} target="_blank" rel="noreferrer">
+              <a href={appHref(dep.url)} target="_blank" rel="noreferrer">
                 <Button size="sm" variant="outline" icon={<IcExternal size={13} />}>Open app</Button>
               </a>
             )}

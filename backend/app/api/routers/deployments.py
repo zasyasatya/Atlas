@@ -9,6 +9,8 @@ from fastapi.responses import Response
 from sqlmodel import desc, select
 
 from app.api.deps import CurrentUser, EditorUser, SessionDep
+from app.api.routers.approutes import invalidate as invalidate_routes
+from app.services import app_proxy
 from app.domain.enums import AppFramework, DeploymentStatus
 from app.domain.models import Deployment, Topic, User
 from app.domain.schemas import CheckOut, DeploymentIn, DeploymentOut
@@ -19,12 +21,15 @@ router = APIRouter(prefix="/api/deployments", tags=["deployments"])
 
 
 def _sync_proxy(session) -> dict:
-    """Regenerate nginx virtual-directory config + reload, matching running apps.
+    """Keep both routing layers in step with the set of running apps.
 
-    Runs after every deploy/stop/delete so nginx adjusts automatically. Never
+    Called after every deploy/stop/delete: it drops the slug->port cache so the
+    built-in proxy serves (or stops serving) the path on the very next request,
+    and it regenerates + reloads nginx config for operators who use it. Never
     raises - a proxy issue must not break an otherwise successful deployment.
     """
     try:
+        invalidate_routes()
         return proxy.sync(deploy_service.running_routes(session))
     except Exception as exc:  # pragma: no cover - defensive
         return {"status": "error", "detail": f"proxy sync failed: {exc}"}
@@ -255,10 +260,36 @@ def proxy_config(session: SessionDep, user: EditorUser) -> Response:
 
 @router.get("/proxy-status")
 def proxy_status(session: SessionDep, user: EditorUser) -> dict:
-    """Live state of the automatic reverse proxy (nginx presence, snippets)."""
+    """Live state of app routing: who serves the path, and is the app answering.
+
+    Two separate questions, because they fail differently. `builtin`/`nginx` say
+    whether the virtual directory is wired up; `checks` probes each app on its
+    internal port, which is the part that tells a learner their process is alive
+    but still importing dependencies.
+    """
     stat = proxy.status()
-    stat["routes"] = deploy_service.running_routes(session)
+    routes = deploy_service.running_routes(session)
+    stat["routes"] = routes
+    stat["builtin"] = app_proxy.describe()
+    stat["checks"] = [dict(proxy.probe(r), slug=r["slug"], path=r["path"]) for r in routes]
+    stat["live"] = sum(1 for c in stat["checks"] if c["live"])
+    stat["expected"] = len(routes)
     return stat
+
+
+@router.post("/proxy-sync")
+def proxy_sync(session: SessionDep, user: EditorUser) -> dict:
+    """Re-run routing for the apps that are running now.
+
+    The escape hatch for the two states that need it: an nginx reload that failed
+    (so the files are correct but the live proxy is not), and a host where nginx
+    was installed after ATLAS started. Same call a deploy makes, so it can be
+    clicked without a maintenance window.
+    """
+    result = _sync_proxy(session)
+    result["routes"] = deploy_service.running_routes(session)
+    result["builtin"] = app_proxy.describe()
+    return result
 
 
 def settings_port() -> int:

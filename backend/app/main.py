@@ -1,4 +1,9 @@
-"""ATLAS - AI Internship Operating System. FastAPI monolith serving the Next.js bundle."""
+"""ATLAS. FastAPI monolith serving the web UI, the API and every deployed app.
+
+The product name and its tagline are configuration (``app.core.config``), not text
+in this file, so rebranding never means editing code. This module is only about
+wiring: routers, the brand endpoint, and the lifespan reconciliation.
+"""
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -9,7 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routers import assignments, assets, auth, content, dashboard, deployments, notebooks, users
+from app.api.routers import (approutes, assignments, assets, auth, content, dashboard,
+                             deployments, notebooks, users)
 from app.core.config import settings
 from app.core.db import init_db, session_scope
 from app.services import proxy
@@ -23,9 +29,10 @@ async def lifespan(app: FastAPI):
     if settings.seed_demo_data:
         with session_scope() as session:
             seed(session)
-    # Reconcile the reverse proxy with the apps that are marked running, so a
-    # restarted ATLAS regenerates the nginx virtual-directory config instead of
-    # leaving nginx pointing at ports from a previous boot. Best-effort.
+    # Reconcile routing with the apps that are marked running, so a restarted
+    # ATLAS regenerates the nginx virtual-directory config (and clears its own
+    # slug cache) instead of leaving either pointing at ports from a previous boot.
+    # Best-effort: a stale proxy must not stop the platform from coming up.
     try:
         with session_scope() as session:
             proxy.sync(running_routes(session))
@@ -55,6 +62,11 @@ for router in (auth.router, content.router, assets.router, notebooks.router,
                deployments.router, dashboard.router, assignments.router, users.router):
     app.include_router(router)
 
+# Deployed apps, mounted as virtual directories on this same port. Registered last
+# among the routers but before the SPA catch-all below, so /app/<slug> is proxied
+# to the app rather than falling through to the frontend bundle.
+app.include_router(approutes.router)
+
 
 @app.get("/api/health")
 def health() -> dict:
@@ -66,7 +78,14 @@ def health() -> dict:
 def public_config() -> dict:
     return {
         "app_name": settings.app_name,
+        # The single brand source the UI reads: name, tagline, short label,
+        # subtitle, docs link. `app_name`/`tagline` stay at the top level for
+        # anything already consuming them.
+        "brand": settings.brand,
         "tagline": settings.app_tagline,
+        # Lets the UI build an app's path ("/app/<slug>/") without hardcoding the
+        # prefix, which is configurable per deployment.
+        "app_prefix": settings.deploy_prefix,
         # The client id alone does not make sign-in work - the exchange needs
         # the secret too. Report whether the flow is actually usable so the UI
         # never offers a button that cannot succeed.
