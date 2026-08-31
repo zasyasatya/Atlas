@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
 import { auth, prefs, storageIsEphemeral, User } from '@/lib/api';
+import { useBrand } from '@/lib/brand';
 import {
   IcApps, IcArrowLeft, IcArrowRight, IcBook, IcDatabase, IcFlask, IcGrid,
   IcLogout, IcMenu, IcRocket, IcCode, IcSettings, IcTrophy, IcUsers, IcX,
@@ -34,6 +35,7 @@ const NAV_BOTTOM = [
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
+  const brand = useBrand();
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = React.useState<User | null>(null);
@@ -132,7 +134,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <div className="lg:hidden sticky top-0 z-40 flex items-center justify-between px-4 h-14 bg-white/90 backdrop-blur border-b border-line">
         <Link href="/dashboard" className="flex items-center gap-2">
           <Logo />
-          <span className="font-extrabold tracking-[-0.02em]">ATLAS</span>
+          <span className="font-extrabold tracking-[-0.02em]">{brand.name}</span>
         </Link>
         <button onClick={() => setOpen(!open)} className="p-2 rounded-lg text-ink-soft hover:bg-paper-deep">
           {open ? <IcX size={20} /> : <IcMenu size={20} />}
@@ -149,8 +151,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
               className={`flex items-center gap-2.5 ${rail ? 'lg:justify-center' : ''}`}>
               <Logo />
               <div className={rail ? 'lg:hidden' : ''}>
-                <div className="font-extrabold text-[15px] tracking-[-0.02em] leading-none">ATLAS</div>
-                <div className="text-[10px] text-ink-faint mt-1 tracking-wide">INTERNSHIP OS</div>
+                <div className="font-extrabold text-[15px] tracking-[-0.02em] leading-none">{brand.name}</div>
+                <div className="text-[10px] text-ink-faint mt-1 tracking-wide uppercase">{brand.label}</div>
               </div>
             </Link>
           </div>

@@ -11,7 +11,10 @@ Runs without a server and without nginx installed - it verifies:
   * each app gets a distinct persistent data directory, and every cache/config/
     temp path in its environment is pinned inside that directory (apps can't see
     each other's data);
-  * the generated compose mounts an isolated persistent data volume.
+  * the generated compose mounts an isolated persistent data volume;
+  * the built-in proxy is reported as what serves an app, and the optional nginx
+    vhost install writes only its own file, links it, and yields to any file the
+    operator maintains.
 
     python tests/proxy_isolation.py
 """
@@ -82,6 +85,9 @@ def test_sync_lifecycle(tmp: Path) -> None:
     check("sync writes the standalone vhost", proxy.vhost_file().exists())
     check("sync without nginx reports files_ready (never fails)",
           res["status"] == "files_ready" and res["wrote_snippets"] is True)
+    check("sync without nginx is no longer worded like a fault",
+          "not detected" not in res["detail"].lower()
+          and "ATLAS" in res["detail"])
 
     # Stop one app: its block must disappear, the other stays.
     proxy.sync(ROUTES[:1])
@@ -94,6 +100,105 @@ def test_sync_lifecycle(tmp: Path) -> None:
     body = (cdir / remaining[0]).read_text()
     check("remaining snippet routes the still-running app",
           "proxy_pass http://127.0.0.1:8601/app/corrosion-unet/;" in body)
+
+
+def test_serving_layers(tmp: Path) -> None:
+    """What the app path is actually answered by, and the opt-in nginx install."""
+    proxy.settings.storage_dir = tmp / "storage"
+    proxy.settings.nginx_conf_dir = ""
+    proxy.settings.nginx_vhost_file = ""
+    proxy.settings.nginx_reload_cmd = ""
+    original = (proxy.settings.deploy_builtin_proxy, proxy.settings.nginx_auto_install,
+                proxy.settings.nginx_sites_available, proxy.settings.nginx_sites_enabled,
+                proxy.settings.nginx_conf_d)
+    try:
+        # The built-in proxy is the default answer for /<prefix>/<slug>/.
+        proxy.settings.deploy_builtin_proxy = True
+        proxy.settings.nginx_auto_install = False
+        check("serving mode reports ATLAS as the proxy by default",
+              proxy.serving_mode() == "atlas")
+        stat = proxy.status()
+        check("status reports the serving mode, not just 'is nginx there'",
+              stat["serving_mode"] == "atlas" and "auto_install" in stat
+              and stat["installed_at"] is None)
+
+        res = proxy.sync(ROUTES)
+        check("with no nginx the run still reports success for the apps",
+              res["status"] == "files_ready" and "served as virtual directories by ATLAS"
+              in res["detail"])
+        check("and it says the nginx install is opt-in, not missing",
+              res["install_skipped"] and "ATLAS_NGINX_AUTO_INSTALL" in res["install_skipped"])
+
+        proxy.settings.deploy_builtin_proxy = False
+        check("turning the built-in proxy off is visible in the detail text",
+              "built-in proxy is disabled" in proxy.sync(ROUTES)["detail"])
+        proxy.settings.deploy_builtin_proxy = True
+
+        # Opt-in install, Debian layout: write + enable, nothing else touched.
+        avail = tmp / "sites-available"
+        enabled = tmp / "sites-enabled"
+        avail.mkdir()
+        enabled.mkdir()
+        foreign = avail / "other-site.conf"
+        foreign.write_text("server {}\n")
+        proxy.settings.nginx_auto_install = True
+        proxy.settings.nginx_sites_available = str(avail)
+        proxy.settings.nginx_sites_enabled = str(enabled)
+        proxy.settings.nginx_conf_d = ""
+        res = proxy.sync(ROUTES)
+        installed = avail / proxy.VHOST_NAME
+        check("auto-install writes the vhost into sites-available",
+              installed.exists() and "location ^~ /app/corrosion-unet/" in installed.read_text())
+        check("auto-install enables it with a symlink in sites-enabled",
+              (enabled / proxy.VHOST_NAME).is_symlink()
+              and res["installed_to"] == str(installed))
+        check("auto-install leaves other sites in the directory alone",
+              foreign.read_text() == "server {}\n")
+        check("installing the vhost makes the serving mode honest about it",
+              proxy.serving_mode() == "atlas+nginx")
+
+        # A file the operator maintains wins over ours, always.
+        installed.write_text("server { listen 80; }  # hand-written\n")
+        res = proxy.sync(ROUTES)
+        check("a non-ATLAS atlas.conf is never overwritten",
+              "hand-written" in installed.read_text()
+              and "not ATLAS-managed" in res["install_skipped"])
+
+        # ...but ours is regenerated, and the install survives that rewrite.
+        installed.write_text(proxy.MANAGED_TAG + "\nserver { stale }\n")
+        proxy.sync(ROUTES)
+        check("an ATLAS-managed atlas.conf is refreshed on the next sync",
+              "atlas-app-corrosion-unet" not in installed.read_text()
+              and "location ^~ /app/failure-predictor/" in installed.read_text())
+
+        # RHEL/Alpine layout: no sites-available, just an included conf.d.
+        proxy.settings.nginx_auto_install = True
+        proxy.settings.nginx_sites_available = ""
+        proxy.settings.nginx_sites_enabled = ""
+        confd = tmp / "conf.d"
+        confd.mkdir()
+        proxy.settings.nginx_conf_d = str(confd)
+        check("conf.d is used when the host has no sites-available",
+              proxy._install_vhost(ROUTES)["path"] == str(confd / proxy.VHOST_NAME)
+              and (confd / proxy.VHOST_NAME).exists())
+
+        # A directory we cannot write is not an error, just not installed.
+        proxy.settings.nginx_sites_available = str(tmp / "does-not-exist")
+        proxy.settings.nginx_conf_d = ""
+        check("a missing nginx directory skips instead of failing",
+              proxy._install_target() is None)
+
+        # Liveness probing answers the question the portal shows.
+        check("probe reports a dead port without raising",
+              proxy.probe({"slug": "x", "path": "app/x", "port": 1,
+                           "framework": "streamlit"})["live"] is False)
+        check("probe explains a deployment that has no port at all",
+              "no internal port" in proxy.probe({"slug": "x", "path": "app/x",
+                                                 "port": None})["detail"])
+    finally:
+        (proxy.settings.deploy_builtin_proxy, proxy.settings.nginx_auto_install,
+         proxy.settings.nginx_sites_available, proxy.settings.nginx_sites_enabled,
+         proxy.settings.nginx_conf_d) = original
 
 
 def test_data_isolation(tmp: Path) -> None:
@@ -143,6 +248,8 @@ def main() -> int:
         test_vhost_render()
         print("proxy sync lifecycle:")
         test_sync_lifecycle(tmp / "p")
+        print("serving layers (built-in proxy + optional nginx install):")
+        test_serving_layers(tmp / "s")
         print("per-app data isolation:")
         test_data_isolation(tmp / "d")
         print("container data volume:")

@@ -1,6 +1,10 @@
 # ATLAS — Product Requirements Document
 
-**Product:** ATLAS (AI Internship Operating System)
+**Product:** ATLAS (Applied AI & Data Research Platform)
+
+> Renamed from "AI Internship Operating System" on 2026-08-31. The programme mechanics in this
+> document — intern/supervisor roles, cohorts, the graduation rubric — are unchanged: they are the
+> product's onboarding and certification engine, and they still describe how deployments get graded.
 **Version:** 1.0
 **Date:** 29 August 2026
 **Status:** Implemented — running reference build in this repository

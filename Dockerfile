@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ============================================================================
-#  ATLAS - AI Internship Operating System
+#  ATLAS application image (backend + built UI bundle)
 #  Single-image monolith: Next.js static export served by FastAPI.
 #  Build:  docker build -t atlas .
 #  Run:    docker run -p 8000:8000 -v atlas_storage:/app/storage atlas
