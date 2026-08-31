@@ -99,14 +99,38 @@ readiness score with fix hints. Verified: both starter templates score 100%, a F
 **One-click deployment** — Upload a zip, press deploy. ATLAS generates a Dockerfile, launches the
 app, re-runs the rubric, and publishes it to the App Portal automatically.
 
-**No per-app ports — apps live under virtual directories.** Deployed apps are
-not separate public services. Each runs on an internal port and is served as a
-path on the main domain — `https://yourdomain.com/app/<slug>` — so a whole
-cohort shares one domain and one reverse proxy. On the Portal, operators press
-**Proxy config** (or `GET /api/deployments/proxy-config`) to get the nginx
-`location` blocks that route `/app/<slug>` to each app; those blocks are all
-that a VPS needs to expose the entire cohort on ports 80/443. The path prefix
-defaults to `app` and can be changed with `ATLAS_DEPLOY_URL_PREFIX`.
+**No per-app ports — apps live under virtual directories, routed automatically.**
+Deployed apps are not separate public services. Each runs on an internal port
+and is served as a path on the main domain — `https://yourdomain.com/app/<slug>`
+— so a whole cohort shares one domain and one reverse proxy. On every deploy,
+stop and delete, ATLAS **automatically** regenerates the nginx configuration for
+just that app and gracefully reloads:
+
+* one managed snippet per app, `atlas-app-<slug>.conf`, is written to a
+  dedicated `apps.d` directory (only ATLAS-managed `atlas-app-*.conf` files are
+  ever touched, so every other site/app on the nginx host is left alone);
+* a full `atlas.conf` vhost is also generated that serves the apps **and**
+  proxies the portal/API to the backend — one server block powers the whole
+  platform on ports 80/443;
+* nginx is validated (`nginx -t`) before reload and the change is **rolled back
+  if invalid**, so a broken app can never take the proxy (or the other apps)
+  down; the reload is graceful, so in-flight requests are not dropped.
+
+Point `ATLAS_NGINX_CONF_DIR` / `ATLAS_NGINX_RELOAD_CMD` at a live nginx for fully
+automatic reloads. With nginx not yet installed, the files are written under
+`storage/nginx/` for one-time install — operators can review/download them from
+**Portal → Reverse proxy (nginx)** or `GET /api/deployments/proxy-config` /
+`/proxy-status`. The path prefix defaults to `app` and can be changed with
+`ATLAS_DEPLOY_URL_PREFIX`.
+
+**Per-app persistent, isolated data.** Each deployed app gets its own data folder
+under `storage/appdata/<id>_<slug>/` — outside the bundle, so it survives bundle
+re-uploads and redeploys, and is separate from every other app. The app's
+`HOME`, XDG cache/config/data dirs, temp dir and common ML caches (Hugging Face,
+Torch, Matplotlib, Gradio) are all pinned inside it, so apps cannot read or
+overwrite each other's files and nothing is lost on redeploy. It lives on the
+same persistent volume (`./data` → `/app/storage`); the generated Docker
+compose mounts an isolated `app-data` volume at `/data` for container deploys.
 
 ---
 
@@ -143,6 +167,9 @@ Everything is environment-driven. Copy `.env.example` to `.env`.
 | `ATLAS_GITHUB_TOKEN`, `ATLAS_COLAB_GITHUB_REPO` | Enables true one-click Colab |
 | `ATLAS_KAGGLE_USERNAME`, `ATLAS_KAGGLE_KEY` | Enables headless Kaggle GPU |
 | `ATLAS_DEPLOY_DRIVER` | `local_process` (default), `coolify`, or `manifest` |
+| `ATLAS_DEPLOY_URL_PREFIX` | Virtual-directory prefix (default `app`) → `/app/<slug>` |
+| `ATLAS_NGINX_CONF_DIR`, `ATLAS_NGINX_VHOST_FILE` | Where ATLAS writes per-app snippets + the vhost for automatic nginx sync |
+| `ATLAS_NGINX_RELOAD_CMD`, `ATLAS_NGINX_AUTO_RELOAD` | Command to reload nginx and whether to do it automatically |
 | `ATLAS_COOLIFY_*` | Base URL, token, project and server UUID |
 | `ATLAS_GOOGLE_CLIENT_ID/SECRET` | Google SSO |
 
@@ -258,6 +285,7 @@ cohort, or change every password.
 | `tests/lesson_contract.py` | 13 checks that every seeded lesson block matches what `BlockRenderer.tsx` reads. Catches blocks that would render blank. |
 | `tests/google_auth.py` | 31 checks on Google id_token verification: forged signatures, `alg=none`, algorithm confusion, wrong audience, expiry, unverified email, nonce replay, PKCE. No network needed. |
 | `tests/google_flow.py` | 23 checks driving a full sign-in against a stand-in Google: authorize, code exchange, callback, session, and replay rejection. |
+| `tests/proxy_isolation.py` | 17 checks that each app is rendered as its own nginx virtual directory, sync writes/removes only ATLAS-managed snippets, and every app's data/cache/temp paths are isolated in a persistent per-app folder. No server or nginx needed. |
 | `tests/assignments.py` | 34 checks that assignment gating holds on every topic-scoped route, and that the pipeline library serves files without path traversal. Needs a dev **and** a prod instance. |
 | `tests/course_e2e.py` | 25 checks driving one whole internship course through the API: lessons, notebook contents, checkpoint upload, bundle, rubric, deploy, portal, and an HTTP fetch of the running app. Needs a dev instance and a trained checkpoint. |
 | `tests/capture_manual.py` | Recaptures every manual screenshot from the running app. |

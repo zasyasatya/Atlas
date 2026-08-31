@@ -1,6 +1,7 @@
 """One-click deployment + graduation rubric + public app portal."""
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
@@ -11,10 +12,22 @@ from app.api.deps import CurrentUser, EditorUser, SessionDep
 from app.domain.enums import AppFramework, DeploymentStatus
 from app.domain.models import Deployment, Topic, User
 from app.domain.schemas import CheckOut, DeploymentIn, DeploymentOut
-from app.services import compliance, deployments as deploy_service
+from app.services import compliance, deployments as deploy_service, proxy
 from app.services.activity import record
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
+
+
+def _sync_proxy(session) -> dict:
+    """Regenerate nginx virtual-directory config + reload, matching running apps.
+
+    Runs after every deploy/stop/delete so nginx adjusts automatically. Never
+    raises - a proxy issue must not break an otherwise successful deployment.
+    """
+    try:
+        return proxy.sync(deploy_service.running_routes(session))
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"status": "error", "detail": f"proxy sync failed: {exc}"}
 
 
 def _out(session, dep: Deployment) -> DeploymentOut:
@@ -149,6 +162,13 @@ def deploy(deployment_id: int, session: SessionDep, user: CurrentUser) -> Deploy
         dep.published_to_portal = True
         session.add(dep)
         session.commit()
+    # Make the new app reachable as a virtual directory and adjust nginx.
+    pstat = _sync_proxy(session)
+    if dep.status == DeploymentStatus.RUNNING:
+        line = f"[proxy] {pstat.get('status')}: {pstat.get('detail') or pstat.get('conf_dir')}"
+        dep.build_logs = (dep.build_logs or "") + "\n" + line
+        session.add(dep)
+        session.commit()
     record(session, user=user, action=f"deployed app ({dep.status})", entity_type="deployment",
            entity_id=dep.id, topic_id=dep.topic_id, detail=f"{dep.name} -> {dep.url or 'n/a'}")
     return _out(session, dep)
@@ -163,6 +183,8 @@ def stop(deployment_id: int, session: SessionDep, user: CurrentUser) -> Deployme
     dep.status = DeploymentStatus.STOPPED
     session.add(dep)
     session.commit()
+    # Remove this app's virtual directory so nginx no longer routes its path.
+    _sync_proxy(session)
     session.refresh(dep)
     return _out(session, dep)
 
@@ -216,17 +238,27 @@ def get_dockerfile(deployment_id: int, session: SessionDep, user: CurrentUser) -
 
 @router.get("/proxy-config")
 def proxy_config(session: SessionDep, user: EditorUser) -> Response:
-    """nginx location blocks routing /app/<slug> to each running app.
+    """Full nginx vhost: every app as a virtual directory plus the portal proxy.
 
     The deployed apps share one domain/port (80/443); this is the reverse-proxy
-    config that makes them reachable as virtual directories. Only admins and
-    supervisors (the operators who run nginx) need it.
+    config that makes them reachable as virtual directories. In normal
+    operation ATLAS writes and reloads this automatically - this endpoint is for
+    operators setting nginx up for the first time or reviewing it. Only admins
+    and supervisors (the operators who run nginx) need it.
     """
     routes = deploy_service.running_routes(session)
-    text = deploy_service.nginx_conf(routes)
+    text = proxy.full_vhost(routes)
     return Response(
         content=text, media_type="text/plain",
-        headers={"Content-Disposition": 'attachment; filename="atlas-proxy.conf"'})
+        headers={"Content-Disposition": 'attachment; filename="atlas.conf"'})
+
+
+@router.get("/proxy-status")
+def proxy_status(session: SessionDep, user: EditorUser) -> dict:
+    """Live state of the automatic reverse proxy (nginx presence, snippets)."""
+    stat = proxy.status()
+    stat["routes"] = deploy_service.running_routes(session)
+    return stat
 
 
 def settings_port() -> int:
@@ -240,5 +272,16 @@ def delete_deployment(deployment_id: int, session: SessionDep, user: EditorUser)
     if not dep:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deployment not found")
     deploy_service.stop(dep)
+    # Remove the app's isolated persistent data folder (it lives outside the
+    # bundle, so it is not cleaned by unpack). Best-effort: never block a delete
+    # on a data folder that is still held open.
+    try:
+        data_dir = deploy_service.app_data_dir(dep)
+        if data_dir.exists():
+            shutil.rmtree(data_dir, ignore_errors=True)
+    except Exception:
+        pass
     session.delete(dep)
     session.commit()
+    # Drop the deleted app's virtual directory and reload nginx.
+    _sync_proxy(session)

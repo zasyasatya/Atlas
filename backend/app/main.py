@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routers import assignments, assets, auth, content, dashboard, deployments, notebooks, users
 from app.core.config import settings
 from app.core.db import init_db, session_scope
+from app.services import proxy
+from app.services.deployments import running_routes
 from app.services.seed import seed
 
 
@@ -21,6 +23,14 @@ async def lifespan(app: FastAPI):
     if settings.seed_demo_data:
         with session_scope() as session:
             seed(session)
+    # Reconcile the reverse proxy with the apps that are marked running, so a
+    # restarted ATLAS regenerates the nginx virtual-directory config instead of
+    # leaving nginx pointing at ports from a previous boot. Best-effort.
+    try:
+        with session_scope() as session:
+            proxy.sync(running_routes(session))
+    except Exception:
+        pass
     yield
 
 

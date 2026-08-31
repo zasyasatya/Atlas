@@ -59,9 +59,12 @@ COPY templates/ /app/templates/
 COPY --from=frontend /build/out /app/backend/app/static
 
 # NOTE: /bin/sh in slim images is dash, which has no brace expansion.
-RUN for d in datasets decks notebooks deployments artifacts runs; do \
+#   appdata/<id>_<slug>/  = one isolated, persistent data folder per deployed app
+#   nginx/                = auto-generated per-app snippets + atlas.conf vhost
+RUN for d in datasets decks notebooks deployments artifacts runs appdata nginx; do \
       mkdir -p "/app/storage/$d"; \
     done \
+ && mkdir -p /app/storage/nginx/apps.d \
  && chown -R atlas:atlas /app
 
 USER atlas

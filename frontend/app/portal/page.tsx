@@ -3,21 +3,28 @@ import React from 'react';
 import { api, auth, Deployment, fmtDate, Topic } from '@/lib/api';
 import { Page, PageHeader, Shell } from '../components/Shell';
 import { Badge, Button, Card, Empty, Modal, Progress, Select, Skeleton, StatusDot, useToast } from '../components/UI';
-import { IcApps, IcCheck, IcDownload, IcExternal, IcTrophy } from '../components/Icons';
+import { IcAlert, IcApps, IcCheck, IcDownload, IcExternal, IcTrophy } from '../components/Icons';
 
 export default function Portal() {
   const [deps, setDeps] = React.useState<Deployment[] | null>(null);
   const [topics, setTopics] = React.useState<Topic[]>([]);
   const [filter, setFilter] = React.useState('');
   const [proxy, setProxy] = React.useState<string | null>(null);
+  const [proxyStat, setProxyStat] = React.useState<any | null>(null);
   const [proxyOpen, setProxyOpen] = React.useState(false);
   const { show, node } = useToast();
   const canEdit = auth.canEdit();
 
   const loadProxy = async () => {
     setProxyOpen(true);
+    setProxy(null);
     try {
-      setProxy(await api.get<string>('/api/deployments/proxy-config'));
+      const [cfg, stat] = await Promise.all([
+        api.get<string>('/api/deployments/proxy-config'),
+        api.get<any>('/api/deployments/proxy-status').catch(() => null),
+      ]);
+      setProxy(cfg);
+      setProxyStat(stat);
     } catch (e: any) {
       show(e.message || 'Could not load proxy config', 'bad');
       setProxyOpen(false);
@@ -117,12 +124,36 @@ export default function Portal() {
         </div>
       </Page>
 
-      <Modal open={proxyOpen} onClose={() => setProxyOpen(false)} title="Reverse-proxy config"
-        subtitle="nginx location blocks that serve every app under /app/<slug> on the main domain - no per-app ports needed." wide>
+      <Modal open={proxyOpen} onClose={() => setProxyOpen(false)} title="Reverse proxy (nginx)"
+        subtitle="Every app is served automatically as a virtual directory under /app/<slug> on the main domain — no per-app ports. nginx is regenerated and reloaded on each deploy/stop; this config is for first-time setup or review." wide>
         {proxy === null ? (
           <div className="text-[13px] text-ink-soft py-6 text-center">Loading…</div>
         ) : (
           <div className="space-y-3">
+            {proxyStat && (
+              <div className={`flex items-start gap-3 rounded-xl px-4 py-3 text-[12.5px] leading-snug ${
+                proxyStat.nginx_present ? 'bg-[#EAF3EC] text-[#33663F]' : 'bg-[#FBF3E2] text-[#8A6420]'}`}>
+                <span className="mt-0.5 shrink-0">{proxyStat.nginx_present ? <IcCheck size={15} /> : <IcAlert size={15} />}</span>
+                <div>
+                  {proxyStat.nginx_present ? (
+                    <>
+                      <b>Automatic nginx sync is active.</b> ATLAS writes one managed snippet per app and
+                      reloads nginx safely (validated first, rolled back on error) — other sites are untouched.
+                      <div className="text-[11.5px] opacity-80 mt-0.5">
+                        {proxyStat.managed_snippets} managed app block(s) in <span className="mono">{proxyStat.conf_dir}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <b>nginx not detected on this host.</b> Config is generated automatically on every deploy
+                      and stored ready to install. Copy <span className="mono">atlas.conf</span> into nginx once
+                      (instructions at the top of the file), then set <span className="mono">ATLAS_NGINX_CONF_DIR</span> and
+                      <span className="mono"> ATLAS_NGINX_RELOAD_CMD</span> to make reloads fully automatic.
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="max-h-[50vh] overflow-auto rounded-xl bg-ink text-[#DDE7DF] p-4 text-[12px] mono whitespace-pre leading-relaxed">
               {proxy}
             </div>
@@ -133,7 +164,7 @@ export default function Portal() {
                   const blob = new Blob([proxy], { type: 'text/plain' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
-                  a.href = url; a.download = 'atlas-proxy.conf'; a.click();
+                  a.href = url; a.download = 'atlas.conf'; a.click();
                   URL.revokeObjectURL(url);
                 }}>
                 Download

@@ -267,7 +267,7 @@ def ensure_env_file() -> None:
 
 
 def serve(py: Path, host: str, port: int, reload: bool, has_ui: bool) -> None:
-    for sub in ("datasets", "decks", "artifacts", "deployments", "notebooks"):
+    for sub in ("datasets", "decks", "artifacts", "deployments", "notebooks", "appdata", "nginx"):
         (ROOT / "storage" / sub).mkdir(parents=True, exist_ok=True)
 
     shown = "localhost" if host in ("0.0.0.0", "127.0.0.1") else host
@@ -304,7 +304,7 @@ def serve_dev(py: Path, port: int) -> None:
     if not (FRONTEND / "node_modules").is_dir():
         run([npm, "install"], cwd=FRONTEND)
 
-    for sub in ("datasets", "decks", "artifacts", "deployments", "notebooks"):
+    for sub in ("datasets", "decks", "artifacts", "deployments", "notebooks", "appdata", "nginx"):
         (ROOT / "storage" / sub).mkdir(parents=True, exist_ok=True)
 
     say("\n" + "=" * 62, G)
