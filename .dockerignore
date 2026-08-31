@@ -6,6 +6,7 @@
 .venv
 venv
 storage
+data
 .git
 .gitignore
 *.md

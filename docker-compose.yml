@@ -34,7 +34,10 @@ services:
       ATLAS_GOOGLE_CLIENT_ID: ${ATLAS_GOOGLE_CLIENT_ID:-}
       ATLAS_GOOGLE_CLIENT_SECRET: ${ATLAS_GOOGLE_CLIENT_SECRET:-}
     volumes:
-      - atlas_storage:/app/storage
+      # Bind-mount the repository's ./data directory onto the container's
+      # storage so the database, uploads and deployed bundles live in a plain,
+      # persistent folder on the host - easy to see, back up and port.
+      - ./data:/app/storage
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 30s
@@ -42,5 +45,6 @@ services:
       retries: 3
       start_period: 25s
 
-volumes:
-  atlas_storage:
+# Named volume is no longer needed: ./data above is the persistent store.
+# volumes:
+#   atlas_storage:

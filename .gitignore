@@ -16,6 +16,8 @@ backend/app/static/
 
 # runtime data: database, uploads, artifacts, deployed bundles
 storage/
+# persistent data directory mounted as /app/storage in Docker (docker-compose)
+data/
 
 # secrets
 .env

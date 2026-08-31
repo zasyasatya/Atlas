@@ -5,7 +5,7 @@ import React from 'react';
 import { auth, prefs, storageIsEphemeral, User } from '@/lib/api';
 import {
   IcApps, IcArrowLeft, IcArrowRight, IcBook, IcDatabase, IcFlask, IcGrid,
-  IcLogout, IcMenu, IcRocket, IcCode, IcSettings, IcTrophy, IcX,
+  IcLogout, IcMenu, IcRocket, IcCode, IcSettings, IcTrophy, IcUsers, IcX,
 } from './Icons';
 
 /**
@@ -171,6 +171,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
           <nav className={`flex-1 space-y-0.5 overflow-y-auto overflow-x-visible ${rail ? 'px-3 lg:px-2.5' : 'px-3'}`}>
             {NAV.map((n) => <NavLink key={n.href} {...n} />)}
+            {/* Operator-only: people/account management for admins & supervisors. */}
+            {auth.canEdit(user) && <NavLink href="/users" label="Users" icon={IcUsers} />}
             <div className="pt-4 mt-4 border-t border-line space-y-0.5">
               {NAV_BOTTOM.map((n) => <NavLink key={n.href} {...n} />)}
             </div>
