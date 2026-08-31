@@ -51,10 +51,32 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \\
 CMD {cmd}
 """
 
+# Every app is served under a base URL path on the main domain (a virtual
+# directory) rather than its own public port, so a whole cohort shares one
+# domain behind a single reverse proxy. Streamlit uses server.baseUrlPath;
+# Gradio uses the GRADIO_ROOT_PATH env var. The base path is e.g. "app/app1"
+# (no leading slash).
 STREAMLIT_CMD = ('["streamlit", "run", "{entry}", "--server.port={port}", '
-                 '"--server.address=0.0.0.0", "--server.headless=true", '
-                 '"--browser.gatherUsageStats=false"]')
+                 '"--server.address=0.0.0.0", "--server.baseUrlPath={base_path}", '
+                 '"--server.headless=true", "--browser.gatherUsageStats=false"]')
 GRADIO_CMD = '["python", "{entry}"]'
+GRADIO_ROOT_PATH_ENV = "GRADIO_ROOT_PATH"
+
+NGINX_HEADER = """# ATLAS reverse-proxy config for deployed apps
+#
+# Every app runs on an internal port and is served under a path on the main
+# domain - https://<domain>/app/<slug> - so the cohort needs only ONE public
+# domain/port (80/443) and a single nginx. Drop the <location> blocks below
+# into your server{{}} block and reload nginx.
+#
+# Generated: {generated}
+"""
+
+NGINX_FOOTER = """# You can also generate this on demand from the UI:
+#   Portal -> "Proxy config"
+# or fetch it directly:
+#   GET /api/deployments/proxy-config  (Bearer token, admin/supervisor)
+"""
 
 BASE_REQS = {
     AppFramework.STREAMLIT: "streamlit>=1.36\npandas>=2.0\nnumpy>=1.26\nscikit-learn>=1.4\nopenpyxl>=3.1\nplotly>=5.20\n",
@@ -92,7 +114,14 @@ def unpack_bundle(deployment: Deployment, data: bytes, filename: str) -> Path:
     return root
 
 
-def ensure_scaffold(root: Path, framework: AppFramework, entrypoint: str, port: int) -> str:
+def base_url_path(slug: str) -> str:
+    """The virtual-directory path segment for an app, e.g. "app/my-app"."""
+    prefix = (settings.deploy_url_prefix or "app").strip("/")
+    return f"{prefix}/{slug}".strip("/")
+
+
+def ensure_scaffold(root: Path, framework: AppFramework, entrypoint: str,
+                    port: int, base_path: str) -> str:
     """Guarantee requirements.txt + Dockerfile exist. Returns the Dockerfile text."""
     reqs = root / "requirements.txt"
     if not reqs.exists():
@@ -104,21 +133,26 @@ def ensure_scaffold(root: Path, framework: AppFramework, entrypoint: str, port: 
             reqs.write_text(text.rstrip() + "\n" + BASE_REQS[framework])
 
     if framework == AppFramework.STREAMLIT:
-        cmd = STREAMLIT_CMD.format(entry=entrypoint, port=port)
-        health = "/_stcore/health"
+        cmd = STREAMLIT_CMD.format(entry=entrypoint, port=port, base_path=base_path)
+        health = f"/{base_path}/_stcore/health"
     else:
         cmd = GRADIO_CMD.format(entry=entrypoint)
-        health = "/"
+        health = f"/{base_path}/"
     dockerfile = DOCKERFILE_TEMPLATE.format(port=port, cmd=cmd, health=health)
     (root / "Dockerfile").write_text(dockerfile)
 
     (root / ".dockerignore").write_text("__pycache__/\n*.pyc\n.venv/\n.git/\n*.zip\n")
+    # The app listens on the main domain under /app/<slug> (no public port), so
+    # the compose file maps nothing externally. If you do expose a port, the
+    # path below is still what the app is served under.
+    root_path_env = ""
+    if framework == AppFramework.GRADIO:
+        root_path_env = f"      - {GRADIO_ROOT_PATH_ENV}=/{base_path}\n"
     compose = f"""services:
   app:
     build: .
-    ports:
-      - "{port}:{port}"
-    environment:
+    # no host port: the app is served under /{base_path} via the nginx proxy.
+{root_path_env}    environment:
       - GRADIO_SERVER_NAME=0.0.0.0
       - GRADIO_SERVER_PORT={port}
     restart: unless-stopped
@@ -136,15 +170,70 @@ def _allocate_port(session: Session) -> int:
 
 
 def _public_url(port: int, slug: str) -> str:
+    """Public URL for a deployed app: a virtual directory on the main domain.
+
+    The app is NOT a separate port/service - it lives under /app/<slug>/ on the
+    main domain and nginx routes that path to the internal port. The trailing
+    slash is deliberate: the proxy `location /app/<slug>/` only matches with it.
+    In the sandbox preview (e2b) the environment is port-addressed, so the path
+    is appended to the per-port subdomain instead.
+    """
+    path = base_url_path(slug)
     base = settings.public_base_url
     if base and ".e2b.app" in base:
         host = base.split("://", 1)[-1]
         parts = host.split("-", 1)
         if len(parts) == 2:
-            return f"https://{port}-{parts[1]}"
+            return f"https://{port}-{parts[1]}/{path}/"
     if base:
-        return f"{base.rstrip('/')}/apps/{slug}"
-    return f"http://localhost:{port}"
+        return f"{base.rstrip('/')}/{path}/"
+    return f"http://localhost:{port}/{path}/"
+
+
+def running_routes(session: Session) -> list[dict]:
+    """Running deployments with everything nginx needs to route their paths."""
+    rows = session.exec(select(Deployment).where(
+        Deployment.status == DeploymentStatus.RUNNING)).all()
+    out = []
+    for d in rows:
+        if not d.internal_port:
+            continue
+        out.append({
+            "slug": d.slug,
+            "name": d.name,
+            "framework": d.framework.value,
+            "port": d.internal_port,
+            "path": base_url_path(d.slug),
+            "url": d.url or "",
+        })
+    return sorted(out, key=lambda r: r["path"])
+
+
+def nginx_conf(routes: list[dict]) -> str:
+    """An nginx server block routing /app/<slug> to each app's internal port."""
+    blocks = []
+    for r in routes:
+        blocks.append(
+            f"    # {r['name']} ({r['framework']})\n"
+            f"    # bare path redirects to the trailing-slash app URL\n"
+            f"    location = /{r['path']} {{ return 301 /{r['path']}/; }}\n"
+            f"    location /{r['path']}/ {{\n"
+            f"        proxy_pass http://127.0.0.1:{r['port']}/{r['path']}/;\n"
+            f"        proxy_http_version 1.1;\n"
+            f"        proxy_set_header Upgrade $http_upgrade;\n"
+            f"        proxy_set_header Connection \"upgrade\";\n"
+            f"        proxy_set_header Host $host;\n"
+            f"        proxy_set_header X-Real-IP $remote_addr;\n"
+            f"        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+            f"        proxy_set_header X-Forwarded-Proto $scheme;\n"
+            f"        proxy_read_timeout 3600s;\n"
+            f"        proxy_buffering off;\n"
+            f"    }}\n"
+            f"\n")
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    body = "".join(blocks) if blocks else \
+        "    # No running deployments yet.\n\n"
+    return NGINX_HEADER.format(generated=generated) + body + NGINX_FOOTER
 
 
 def deploy(session: Session, deployment: Deployment, *, task_type: str = "classification") -> Deployment:
@@ -158,9 +247,12 @@ def deploy(session: Session, deployment: Deployment, *, task_type: str = "classi
 
     port = deployment.internal_port or _allocate_port(session)
     deployment.internal_port = port
-    dockerfile = ensure_scaffold(root, deployment.framework, deployment.entrypoint, port)
+    base_path = base_url_path(deployment.slug)
+    dockerfile = ensure_scaffold(root, deployment.framework, deployment.entrypoint,
+                                 port, base_path)
     logs = [f"[{datetime.now(timezone.utc):%H:%M:%S}] Bundle: {root.name}",
-            f"[build] Dockerfile generated for {deployment.framework.value} on port {port}"]
+            f"[build] Dockerfile generated for {deployment.framework.value} on port {port}",
+            f"[build] served at /{base_path} (virtual directory on main domain)"]
 
     driver = settings.deploy_driver
     if driver == "coolify":
@@ -222,13 +314,16 @@ def _deploy_local(deployment: Deployment, root: Path, port: int, logs: list[str]
         deployment.status = DeploymentStatus.FAILED
         return deployment
 
+    base_path = base_url_path(deployment.slug)
     env = dict(os.environ, GRADIO_SERVER_NAME="0.0.0.0", GRADIO_SERVER_PORT=str(port),
                PYTHONUNBUFFERED="1")
     if deployment.framework == AppFramework.STREAMLIT:
         cmd = [str(py), "-m", "streamlit", "run", deployment.entrypoint,
                f"--server.port={port}", "--server.address=0.0.0.0",
+               f"--server.baseUrlPath={base_path}",
                "--server.headless=true", "--browser.gatherUsageStats=false"]
     else:
+        env[GRADIO_ROOT_PATH_ENV] = f"/{base_path}"
         cmd = [str(py), deployment.entrypoint]
 
     if not _wait_for_port(port):

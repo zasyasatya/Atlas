@@ -197,17 +197,36 @@ def get_dockerfile(deployment_id: int, session: SessionDep, user: CurrentUser) -
     if not dep:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deployment not found")
     port = dep.internal_port or settings_port()
+    base_path = deploy_service.base_url_path(dep.slug)
     root = Path(dep.bundle_path) if dep.bundle_path else None
     if root and root.exists():
-        text = deploy_service.ensure_scaffold(root, dep.framework, dep.entrypoint, port)
+        text = deploy_service.ensure_scaffold(root, dep.framework, dep.entrypoint,
+                                              port, base_path)
     else:
-        cmd = (deploy_service.STREAMLIT_CMD.format(entry=dep.entrypoint, port=port)
+        cmd = (deploy_service.STREAMLIT_CMD.format(entry=dep.entrypoint, port=port,
+                                                   base_path=base_path)
                if dep.framework == AppFramework.STREAMLIT
                else deploy_service.GRADIO_CMD.format(entry=dep.entrypoint))
-        health = "/_stcore/health" if dep.framework == AppFramework.STREAMLIT else "/"
+        health = (f"/{base_path}/_stcore/health"
+                  if dep.framework == AppFramework.STREAMLIT else f"/{base_path}/")
         text = deploy_service.DOCKERFILE_TEMPLATE.format(port=port, cmd=cmd, health=health)
     return Response(content=text, media_type="text/plain",
                     headers={"Content-Disposition": 'attachment; filename="Dockerfile"'})
+
+
+@router.get("/proxy-config")
+def proxy_config(session: SessionDep, user: EditorUser) -> Response:
+    """nginx location blocks routing /app/<slug> to each running app.
+
+    The deployed apps share one domain/port (80/443); this is the reverse-proxy
+    config that makes them reachable as virtual directories. Only admins and
+    supervisors (the operators who run nginx) need it.
+    """
+    routes = deploy_service.running_routes(session)
+    text = deploy_service.nginx_conf(routes)
+    return Response(
+        content=text, media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="atlas-proxy.conf"'})
 
 
 def settings_port() -> int:

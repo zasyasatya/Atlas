@@ -48,6 +48,13 @@ python run.py --host 0.0.0.0   # expose on the local network
 docker compose up --build     # http://localhost:8000
 ```
 
+All runtime data — the SQLite database, uploaded datasets/decks, runs and
+deployed bundles — is persisted on the host under the repository's **`./data`**
+directory, which is bind-mounted onto `/app/storage` inside the container.
+That makes the data a plain, portable folder you can inspect, back up, or
+`git`-ignore by design. Deleting `./data` resets the install; removing the
+volume line from `docker-compose.yml` swaps back to an anonymous volume.
+
 ### Demo accounts
 
 | Role | Email | Password |
@@ -91,6 +98,15 @@ readiness score with fix hints. Verified: both starter templates score 100%, a F
 
 **One-click deployment** — Upload a zip, press deploy. ATLAS generates a Dockerfile, launches the
 app, re-runs the rubric, and publishes it to the App Portal automatically.
+
+**No per-app ports — apps live under virtual directories.** Deployed apps are
+not separate public services. Each runs on an internal port and is served as a
+path on the main domain — `https://yourdomain.com/app/<slug>` — so a whole
+cohort shares one domain and one reverse proxy. On the Portal, operators press
+**Proxy config** (or `GET /api/deployments/proxy-config`) to get the nginx
+`location` blocks that route `/app/<slug>` to each app; those blocks are all
+that a VPS needs to expose the entire cohort on ports 80/443. The path prefix
+defaults to `app` and can be changed with `ATLAS_DEPLOY_URL_PREFIX`.
 
 ---
 
@@ -153,6 +169,7 @@ Interactive docs at `/api/docs`.
 | Auth | `POST /api/auth/login`, `/api/auth/google`, `GET /api/auth/me` |
 | Content | `GET/POST /api/topics`, `GET /api/topics/{slug}`, `POST /api/topics/{id}/lessons`, `PUT /api/lessons/{id}` |
 | Assets | `GET/POST /api/assets`, `GET /api/assets/{id}/download` |
+| Users | `GET/POST /api/users`, `PATCH /api/users/{id}` (admin/supervisor only) |
 | Playground | `GET /api/notebooks`, `POST /api/runs`, `GET /api/compute/targets` |
 | Run bridge | `POST /api/runs/{id}/callback`, `GET /api/runs/{id}/dataset`, `POST /api/runs/{id}/artifact` |
 | Deployment | `POST /api/deployments`, `/{id}/bundle`, `/{id}/check`, `/{id}/deploy`, `/{id}/dockerfile` |
@@ -185,6 +202,19 @@ playground ends up showing 13 cells when the current material has 24. On every
 startup ATLAS now regenerates any shipped notebook whose content has drifted,
 matched by its seeded slug. Notebooks an author created or renamed through the
 CMS are left alone, and progress, runs and assignments are never touched.
+
+### People & accounts
+
+Admins and supervisors manage who can sign in from **Users** (sidebar). From
+there you can list every account, add a new one (email, name, password, role
+and optional cohort), and enable/disable access — useful for creating intern
+and supervisor accounts up front or revoking a leaver's access.
+
+API: `GET/POST /api/users`, `PATCH /api/users/{id}`. Creating accounts is
+guarded the same way content is: anyone with an `admin` or `supervisor` role
+may add interns and viewers, but only an admin can create or promote other
+admins/supervisors, and no one can edit an account more privileged than their
+own.
 
 ### Topic assignments
 

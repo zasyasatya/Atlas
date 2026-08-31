@@ -1,14 +1,28 @@
 'use client';
 import React from 'react';
-import { api, Deployment, fmtDate, Topic } from '@/lib/api';
+import { api, auth, Deployment, fmtDate, Topic } from '@/lib/api';
 import { Page, PageHeader, Shell } from '../components/Shell';
-import { Badge, Button, Card, Empty, Progress, Select, Skeleton, StatusDot } from '../components/UI';
-import { IcApps, IcCheck, IcExternal, IcTrophy } from '../components/Icons';
+import { Badge, Button, Card, Empty, Modal, Progress, Select, Skeleton, StatusDot, useToast } from '../components/UI';
+import { IcApps, IcCheck, IcDownload, IcExternal, IcTrophy } from '../components/Icons';
 
 export default function Portal() {
   const [deps, setDeps] = React.useState<Deployment[] | null>(null);
   const [topics, setTopics] = React.useState<Topic[]>([]);
   const [filter, setFilter] = React.useState('');
+  const [proxy, setProxy] = React.useState<string | null>(null);
+  const [proxyOpen, setProxyOpen] = React.useState(false);
+  const { show, node } = useToast();
+  const canEdit = auth.canEdit();
+
+  const loadProxy = async () => {
+    setProxyOpen(true);
+    try {
+      setProxy(await api.get<string>('/api/deployments/proxy-config'));
+    } catch (e: any) {
+      show(e.message || 'Could not load proxy config', 'bad');
+      setProxyOpen(false);
+    }
+  };
 
   React.useEffect(() => {
     api.get<Deployment[]>('/api/deployments').then(setDeps).catch(() => setDeps([]));
@@ -24,10 +38,15 @@ export default function Portal() {
       <PageHeader eyebrow="Portal" title="App portal"
         subtitle="Every app the cohort has shipped, with its rubric score and live URL. This is the documentation surface supervisors review."
         actions={
-          <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-auto min-w-[180px]">
-            <option value="">All topics</option>
-            {topics.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-          </Select>
+          <div className="flex items-center gap-2">
+            {canEdit && (
+              <Button variant="outline" icon={<IcDownload size={14} />} onClick={loadProxy}>Proxy config</Button>
+            )}
+            <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-auto min-w-[180px]">
+              <option value="">All topics</option>
+              {topics.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+            </Select>
+          </div>
         } />
 
       <Page className="space-y-5">
@@ -97,6 +116,32 @@ export default function Portal() {
           ))}
         </div>
       </Page>
+
+      <Modal open={proxyOpen} onClose={() => setProxyOpen(false)} title="Reverse-proxy config"
+        subtitle="nginx location blocks that serve every app under /app/<slug> on the main domain - no per-app ports needed." wide>
+        {proxy === null ? (
+          <div className="text-[13px] text-ink-soft py-6 text-center">Loading…</div>
+        ) : (
+          <div className="space-y-3">
+            <div className="max-h-[50vh] overflow-auto rounded-xl bg-ink text-[#DDE7DF] p-4 text-[12px] mono whitespace-pre leading-relaxed">
+              {proxy}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setProxyOpen(false)}>Close</Button>
+              <Button icon={<IcDownload size={14} />}
+                onClick={() => {
+                  const blob = new Blob([proxy], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = 'atlas-proxy.conf'; a.click();
+                  URL.revokeObjectURL(url);
+                }}>
+                Download
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </Shell>
   );
 }
